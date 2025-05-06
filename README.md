@@ -1,6 +1,3 @@
-> [!IMPORTANT]
-> This repo has moved over to https://github.com/maxbeizer/gh-contrib
-
 # gh-contrib
 
 `gh-contrib` is a GitHub CLI extension helping managers with managering tasks within the GitHub organization.
