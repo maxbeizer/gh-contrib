@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Executable test runner for gh-contrib
+# Usage: script/test
+# This script runs all Go tests with verbose output and a timeout to prevent hanging.
+
+set -euo pipefail
+
+# Run all tests in the module with verbose output and a 30-second per-test timeout
+go test -v -race -timeout 30s ./...

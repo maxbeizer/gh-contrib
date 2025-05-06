@@ -4,7 +4,10 @@ go 1.23.0
 
 toolchain go1.23.1
 
-require github.com/cli/go-gh/v2 v2.12.0
+require (
+	github.com/cli/go-gh/v2 v2.12.0
+	gopkg.in/yaml.v2 v2.4.0
+)
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
