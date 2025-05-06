@@ -1,6 +1,6 @@
 # gh-contrib
 
-`gh-contrib` is a GitHub CLI extension helping managers with managering tasks within the GitHub organization.
+`gh-contrib` is a GitHub CLI extension to help understand your contributions on GitHub.
 
 ## Installation
 
