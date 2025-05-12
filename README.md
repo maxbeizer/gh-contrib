@@ -5,7 +5,7 @@
 ## Installation
 
 ```bash
-gh ext install gh-contrib
+gh ext install maxbeizer/gh-contrib
 ```
 
 ## Usage
