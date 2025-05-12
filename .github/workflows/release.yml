@@ -19,11 +19,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
-      - uses: cli/gh-extension-precompile@v1
+      - uses: cli/gh-extension-precompile@v2
         with:
           generate_attestations: true
           go_version_file: go.mod
-          skip_targets: android/arm64,android/386,android/amd64,android/arm
+        env:
+          RELEASE_ANDROID: "false" # Disable Android builds
       - name: Verify cgo setup
         run: |
           echo "CGO_ENABLED=$CGO_ENABLED"
