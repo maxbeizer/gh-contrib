@@ -23,6 +23,7 @@ jobs:
         with:
           generate_attestations: true
           go_version_file: go.mod
+          skip_targets: android/arm64,android/386,android/amd64,android/arm
       - name: Verify cgo setup
         run: |
           echo "CGO_ENABLED=$CGO_ENABLED"
