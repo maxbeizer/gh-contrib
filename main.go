@@ -16,9 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"os/user"
+
 	"github.com/cli/go-gh/v2/pkg/api"
 	"gopkg.in/yaml.v2"
-	"os/user"
 )
 
 // --- Interfaces for Dependency Injection ---
@@ -218,10 +219,10 @@ type GitHubResponse struct {
 
 // Global variables
 var (
-	debug    bool
-	since    string
-	bodyOnly bool
-	orgFlag  string
+	debug     bool
+	since     string
+	bodyOnly  bool
+	orgFlag   string
 	modelFlag string // Global variable to store the value of the --model flag
 )
 
@@ -568,13 +569,13 @@ func printUserInfo(client GitHubClient) {
 }
 
 func printHelp(client GitHubClient) {
-	fmt.Println("gh-contrib: A tool to manage GitHub issues and pull requests.")
+	fmt.Println("gh-contrib: A tool to better understand GitHub Issues and Pull Requests.")
 	printUserInfo(client)
 	fmt.Println("\nAvailable commands:")
-	fmt.Println("  pulls <username>   - Get pull requests authored by <username> in the 'github' org.")
-	fmt.Println("  issues <username>  - Get issues authored by <username> in the 'github' org.")
-	fmt.Println("  all <username>     - Get all pull requests and issues by <username> in the 'github' org.")
-	fmt.Println("  summarize          - Summarize PR/issue bodies from stdin or argument.")
+	fmt.Println("  pulls <username>   - Get Pull Requests authored by <username> in the 'github' (or specified) org.")
+	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
+	fmt.Println("  all <username>     - Get all Pull Requests and Issues by <username> in the 'github' (or specified) org.")
+	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument.")
 	fmt.Println("\nFlags:")
 	flag.PrintDefaults()
 }
