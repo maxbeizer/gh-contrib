@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -206,6 +207,8 @@ type GitHubItem struct {
 	HTMLURL    string `json:"html_url"`
 	State      string `json:"state"`
 	Body       string `json:"body,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	ClosedAt   string `json:"closed_at"`
 	Repository struct {
 		Name string `json:"name"`
 	} `json:"repository"`
@@ -549,57 +552,133 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		fmt.Printf("Graph visualization for user '%s' in org '%s' since %s:\n\n", login, org, since)
 	}
 
-	// Print a dot for each PR
-	for i := range responseItems {
-		fmt.Printf("• ")
-		// Add newline every 50 dots for better readability
-		if (i+1)%50 == 0 {
-			fmt.Println()
-		}
-	}
-	fmt.Println("")
-
 	// Parse the since date and calculate stats
 	sinceDate, _ := time.Parse(dateFormat, since)
 	today := time.Now()
 	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
 	averagePRs := float64(len(responseItems)) / float64(daysActive)
 
-	// Create a simple histogram of PRs by week
-	fmt.Println("PR distribution by week:")
-
-	// Group PRs by week
+	// Group PRs by week based on closed_at date
 	weekMap := make(map[string]int)
-	for range responseItems {
-		// For now, we don't have PR creation dates in the API response
-		// so we'll just use the current date for demonstration purposes
-		prDate := time.Now() // In a real implementation, use PR creation date
+	weekStartDates := make(map[string]time.Time) // For sorting later
+
+	for _, item := range responseItems {
+		// Use closed_at date if available, otherwise fall back to created_at
+		var prDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil {
+				// If we can't parse closed_at, try using created_at
+				if item.CreatedAt != "" {
+					prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+					if err != nil {
+						// If all parsing fails, use current date as fallback
+						prDate = time.Now()
+					}
+				} else {
+					prDate = time.Now()
+				}
+			}
+		} else if item.CreatedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+			if err != nil {
+				// If parsing fails, use current date as fallback
+				prDate = time.Now()
+			}
+		} else {
+			// No date available, use current date as fallback
+			prDate = time.Now()
+		}
+
 		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			// Handle PRs that were closed before the since date
+			// This shouldn't happen with the API query, but just in case
+			weekNumber = 0
+		}
+
 		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
 		weekEnd := weekStart.AddDate(0, 0, 6)
-		weekKey := fmt.Sprintf("Week %d (%s - %s)",
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
 			weekNumber+1,
 			weekStart.Format("Jan 02"),
 			weekEnd.Format("Jan 02"))
 
 		weekMap[weekKey]++
+		weekStartDates[weekKey] = weekStart
 	}
 
-	// Sort the weeks
+	// Sort the weeks chronologically
 	weeks := make([]string, 0, len(weekMap))
 	for week := range weekMap {
 		weeks = append(weeks, week)
 	}
-	// Simple sort for now - in a full implementation, we'd sort properly by date
 
-	// Print the histogram
+	// Sort weeks by their start date
+	sort.Slice(weeks, func(i, j int) bool {
+		return weekStartDates[weeks[i]].Before(weekStartDates[weeks[j]])
+	})
+
+	// Print the histogram with closed/open PR indicators
+	// Track PRs by state for each week
+	weekStateMap := make(map[string]map[string]int)
+	for week := range weekMap {
+		weekStateMap[week] = make(map[string]int)
+	}
+
+	// Count PRs by state for each week
+	for _, item := range responseItems {
+		// Use closed_at or created_at date to determine the week
+		var prDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil && item.CreatedAt != "" {
+				prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+			}
+		} else if item.CreatedAt != "" {
+			prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+		} else {
+			prDate = time.Now()
+		}
+
+		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			weekNumber = 0
+		}
+
+		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
+			weekNumber+1,
+			weekStart.Format("Jan 02"),
+			weekEnd.Format("Jan 02"))
+
+		weekStateMap[weekKey][item.State]++
+	}
+
+	// Print the histogram with separate symbols for closed and open PRs
 	for _, week := range weeks {
 		count := weekMap[week]
+		closed := weekStateMap[week]["closed"]
+		open := weekStateMap[week]["open"]
+
 		fmt.Printf("%s: ", week)
-		for i := 0; i < count; i++ {
+
+		// Print closed PRs first with • symbol
+		for i := 0; i < closed; i++ {
 			fmt.Print("•")
 		}
-		fmt.Printf(" (%d)\n", count)
+
+		// Print open PRs with o symbol
+		for i := 0; i < open; i++ {
+			fmt.Print("○")
+		}
+
+		fmt.Printf(" (%d total: %d closed, %d open)\n", count, closed, open)
 	}
 	fmt.Println()
 
