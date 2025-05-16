@@ -662,7 +662,6 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	// Print the histogram with separate symbols for closed and open PRs
 	for _, week := range weeks {
-		count := weekMap[week]
 		closed := weekStateMap[week]["closed"]
 		open := weekStateMap[week]["open"]
 
@@ -678,7 +677,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 			fmt.Print("○")
 		}
 
-		fmt.Printf(" (%d total: %d closed, %d open)\n", count, closed, open)
+		fmt.Print("\n")
 	}
 	fmt.Println()
 
