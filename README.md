@@ -40,6 +40,41 @@ gh contrib all <username>
 
 Replace `<username>` with the GitHub username of the user whose pull requests and issues you want to list.
 
+### Visualize Contributions as a Graph
+
+To visualize a user's contributions (both pull requests and issues) as a weekly graph:
+
+```bash
+gh contrib graph <username>
+```
+
+Replace `<username>` with the GitHub username of the user whose contributions you want to visualize.
+
+The graph displays:
+
+- Week-by-week visualization of contributions
+- Different symbols for different contribution types:
+  - • = Closed PR
+  - ○ = Open PR
+  - ■ = Closed Issue
+  - □ = Open Issue
+- Summary statistics including total PRs, total issues, and completion rates
+
+Example output:
+
+```
+Week  1 (Apr 15 - Apr 21): •□■
+Week  2 (Apr 22 - Apr 28): ○••
+Week  3 (Apr 29 - May 05): ■□
+
+Legend:
+• = Closed PR  ○ = Open PR  ■ = Closed Issue  □ = Open Issue
+
+Total Contributions: 7 over 31 days (avg: 0.23 per day)
+PRs: 4 total (3 closed, 1 open)
+Issues: 3 total (1 closed, 2 open)
+```
+
 ### Summarize Pull Request or Issue Bodies
 
 To summarize pull request or issue bodies passed via stdin, separated by the delimiter `---END-OF-ENTRY---`:
@@ -58,13 +93,17 @@ To enable debug mode and see additional information during execution, use the `-
 gh contrib --debug pulls <username>
 ```
 
-## Example
+## Examples
 
 ```bash
+# List all pull requests for a user
 gh contrib pulls octocat
+
+# Visualize a user's contribution history as a graph
+gh contrib graph octocat
 ```
 
-This will display all pull requests created by the user `octocat` in the GitHub organization, sorted by the most recently created.
+These will display pull requests created by the user `octocat` in the GitHub organization, sorted by the most recently created, or visualize their contributions over time as a graph.
 
 ## Requirements
 
@@ -75,12 +114,13 @@ This will display all pull requests created by the user `octocat` in the GitHub 
 
 ### `--since`
 
-Use the `--since` flag to filter pull requests created since a specific date. The date should be in the format `YYYY-MM-DD`. If not provided, it defaults to 30 days before the current date.
+Use the `--since` flag to filter contributions created since a specific date. The date should be in the format `YYYY-MM-DD`. If not provided, it defaults to 30 days before the current date. This applies to all commands including `pulls`, `issues`, `all`, and `graph`.
 
-Example:
+Examples:
 
 ```bash
 gh contrib --since 2025-04-01 pulls <username>
+gh contrib --since 2025-04-01 graph <username>
 ```
 
 ### `--body-only`
