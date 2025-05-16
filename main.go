@@ -7,12 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -207,6 +207,8 @@ type GitHubItem struct {
 	HTMLURL    string `json:"html_url"`
 	State      string `json:"state"`
 	Body       string `json:"body,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	ClosedAt   string `json:"closed_at"`
 	Repository struct {
 		Name string `json:"name"`
 	} `json:"repository"`
@@ -236,12 +238,69 @@ func init() {
 }
 
 func main() {
-	flag.Parse()
-	args := flag.Args()
+	// Create a custom FlagSet to handle flags in any position
+	var cmdFlags flag.FlagSet
+	cmdFlags.BoolVar(&debug, "debug", false, "Enable debug mode")
+	defaultSince := time.Now().AddDate(0, 0, -30).Format(dateFormat)
+	cmdFlags.StringVar(&since, "since", defaultSince, "Filter results created since the specified date (e.g., 2025-04-11)")
+	cmdFlags.BoolVar(&bodyOnly, "body-only", false, "Fetch and print only the body of the pull requests")
+	cmdFlags.StringVar(&orgFlag, "org", "", "Override the configured organization")
+	cmdFlags.StringVar(&modelFlag, "model", "", "Override the configured or default model")
+
+	// Process all the arguments to find and extract flags anywhere in the command
+	args := os.Args[1:] // Skip the program name
+
+	// Extract all flags and non-flags separately
+	var nonFlagArgs []string
+	var i int
+	for i < len(args) {
+		arg := args[i]
+
+		// Check if argument is a flag
+		if strings.HasPrefix(arg, "-") {
+			// Handle --flag=value style
+			if strings.Contains(arg, "=") {
+				cmdFlags.Parse([]string{arg})
+				i++
+				continue
+			}
+
+			// Handle --flag value style
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				// Check if the flag requires a value
+				if arg == "-debug" || arg == "--debug" || arg == "-body-only" || arg == "--body-only" {
+					// Boolean flags don't require a value
+					cmdFlags.Parse([]string{arg})
+					i++
+				} else {
+					// Flags with values
+					cmdFlags.Parse([]string{arg, args[i+1]})
+					i += 2
+				}
+			} else {
+				// Boolean flag or the last argument
+				cmdFlags.Parse([]string{arg})
+				i++
+			}
+		} else {
+			// Not a flag, add to non-flag arguments
+			nonFlagArgs = append(nonFlagArgs, arg)
+			i++
+		}
+	}
+
+	// Now nonFlagArgs contains all the arguments that aren't flags
+	var subcommand string
+	var subcommandArgs []string
+
+	if len(nonFlagArgs) > 0 {
+		subcommand = nonFlagArgs[0]
+		subcommandArgs = append([]string{subcommand}, nonFlagArgs[1:]...)
+	}
 
 	if debug {
 		fmt.Println("Debug mode enabled")
-		fmt.Printf("Arguments: %v\n", args)
+		fmt.Printf("Arguments: %v\n", subcommandArgs)
 		fmt.Printf("Using AI model: %s\n", getEffectiveModel())
 	}
 
@@ -255,21 +314,23 @@ func main() {
 	httpClient := &http.Client{}
 	summarizer := NewAzureAISummarizer(httpClient, tokenFetcher)
 
-	if len(args) == 0 {
+	if len(nonFlagArgs) == 0 {
 		printHelp(ghClient)
 		return
 	}
 
-	cmd := args[0]
+	cmd := subcommand
 	switch cmd {
 	case "pulls":
-		handlePullsCommand(args, ghClient)
+		handlePullsCommand(subcommandArgs, ghClient)
 	case "issues":
-		handleIssuesCommand(args, ghClient)
+		handleIssuesCommand(subcommandArgs, ghClient)
 	case "all":
-		handleAllCommand(args, ghClient)
+		handleAllCommand(subcommandArgs, ghClient)
 	case "summarize":
-		handleSummarizeCommand(args, summarizer)
+		handleSummarizeCommand(subcommandArgs, summarizer)
+	case "graph":
+		handleGraphCommand(subcommandArgs, ghClient)
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printHelp(ghClient)
@@ -451,6 +512,182 @@ func handleSummarizeCommand(args []string, summarizer Summarizer) {
 	}
 }
 
+func handleGraphCommand(args []string, client GitHubClient) {
+	if len(args) < 2 {
+		fmt.Println("Error: login argument is required")
+		fmt.Println("Usage: gh-contrib graph <login>")
+		return
+	}
+	login := args[1]
+
+	org := getEffectiveOrg()
+
+	if debug {
+		fmt.Println("Debug mode enabled")
+		fmt.Printf("Debug: Creating graph for login '%s' in org '%s' since '%s'\n", login, org, since)
+	}
+
+	// Build the query for PRs within the time range
+	query := buildQuery("is:pr", login)
+	searchURL := fmt.Sprintf("search/issues?q=%s", query)
+
+	if debug {
+		fmt.Printf("Calling GitHub API with URL: %s\n", searchURL)
+	}
+
+	// Fetch all PRs using the same mechanism as handlePullsCommand
+	responseItems, err := fetchAllResults(client, searchURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching pull requests for graph: %v\n", err)
+		return
+	}
+
+	if len(responseItems) == 0 {
+		fmt.Printf("No pull requests found for user '%s' in the '%s' organization since %s.\n", login, org, since)
+		return
+	}
+
+	// Output heading only in debug mode
+	if debug {
+		fmt.Printf("Graph visualization for user '%s' in org '%s' since %s:\n\n", login, org, since)
+	}
+
+	// Parse the since date and calculate stats
+	sinceDate, _ := time.Parse(dateFormat, since)
+	today := time.Now()
+	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
+	averagePRs := float64(len(responseItems)) / float64(daysActive)
+
+	// Group PRs by week based on closed_at date
+	weekMap := make(map[string]int)
+	weekStartDates := make(map[string]time.Time) // For sorting later
+
+	for _, item := range responseItems {
+		// Use closed_at date if available, otherwise fall back to created_at
+		var prDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil {
+				// If we can't parse closed_at, try using created_at
+				if item.CreatedAt != "" {
+					prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+					if err != nil {
+						// If all parsing fails, use current date as fallback
+						prDate = time.Now()
+					}
+				} else {
+					prDate = time.Now()
+				}
+			}
+		} else if item.CreatedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+			if err != nil {
+				// If parsing fails, use current date as fallback
+				prDate = time.Now()
+			}
+		} else {
+			// No date available, use current date as fallback
+			prDate = time.Now()
+		}
+
+		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			// Handle PRs that were closed before the since date
+			// This shouldn't happen with the API query, but just in case
+			weekNumber = 0
+		}
+
+		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
+			weekNumber+1,
+			weekStart.Format("Jan 02"),
+			weekEnd.Format("Jan 02"))
+
+		weekMap[weekKey]++
+		weekStartDates[weekKey] = weekStart
+	}
+
+	// Sort the weeks chronologically
+	weeks := make([]string, 0, len(weekMap))
+	for week := range weekMap {
+		weeks = append(weeks, week)
+	}
+
+	// Sort weeks by their start date
+	sort.Slice(weeks, func(i, j int) bool {
+		return weekStartDates[weeks[i]].Before(weekStartDates[weeks[j]])
+	})
+
+	// Print the histogram with closed/open PR indicators
+	// Track PRs by state for each week
+	weekStateMap := make(map[string]map[string]int)
+	for week := range weekMap {
+		weekStateMap[week] = make(map[string]int)
+	}
+
+	// Count PRs by state for each week
+	for _, item := range responseItems {
+		// Use closed_at or created_at date to determine the week
+		var prDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil && item.CreatedAt != "" {
+				prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+			}
+		} else if item.CreatedAt != "" {
+			prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+		} else {
+			prDate = time.Now()
+		}
+
+		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			weekNumber = 0
+		}
+
+		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
+			weekNumber+1,
+			weekStart.Format("Jan 02"),
+			weekEnd.Format("Jan 02"))
+
+		weekStateMap[weekKey][item.State]++
+	}
+
+	// Print the histogram with separate symbols for closed and open PRs
+	for _, week := range weeks {
+		closed := weekStateMap[week]["closed"]
+		open := weekStateMap[week]["open"]
+
+		fmt.Printf("%s: ", week)
+
+		// Print closed PRs first with • symbol
+		for i := 0; i < closed; i++ {
+			fmt.Print("•")
+		}
+
+		// Print open PRs with o symbol
+		for i := 0; i < open; i++ {
+			fmt.Print("○")
+		}
+
+		fmt.Print("\n")
+	}
+	fmt.Println()
+
+	// Print summary with date information
+	fmt.Printf("Total PRs: %d over %d days (avg: %.2f PRs per day)\n",
+		len(responseItems),
+		daysActive,
+		averagePRs)
+}
+
 var orgConfigFunc = getOrgFromConfig // Default to the actual implementation
 
 // Function to read the organization from the GitHub CLI config file
@@ -461,7 +698,7 @@ func getOrgFromConfig() (string, error) {
 	}
 
 	configPath := filepath.Join(usr.HomeDir, ".config", "gh", "config.yml")
-	configData, err := ioutil.ReadFile(configPath)
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", fmt.Errorf("error reading config file: %w", err)
 	}
@@ -576,6 +813,7 @@ func printHelp(client GitHubClient) {
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  all <username>     - Get all Pull Requests and Issues by <username> in the 'github' (or specified) org.")
 	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument.")
+	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
 	flag.PrintDefaults()
 }
@@ -633,7 +871,7 @@ func getModelFromConfig() string {
 		configPath = filepath.Join(usr.HomeDir, ".config", "gh", "config.yml")
 	}
 
-	configData, err := ioutil.ReadFile(configPath)
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return defaultModel // Default to 'gpt-4o' if config file is missing
 	}
