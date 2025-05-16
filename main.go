@@ -270,6 +270,8 @@ func main() {
 		handleAllCommand(args, ghClient)
 	case "summarize":
 		handleSummarizeCommand(args, summarizer)
+	case "graph":
+		handleGraphCommand(args, ghClient)
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printHelp(ghClient)
@@ -451,6 +453,25 @@ func handleSummarizeCommand(args []string, summarizer Summarizer) {
 	}
 }
 
+func handleGraphCommand(args []string, client GitHubClient) {
+	if len(args) < 2 {
+		fmt.Println("Error: login argument is required")
+		fmt.Println("Usage: gh-contrib graph <login>")
+		return
+	}
+	login := args[1]
+
+	// For now, just output Hello World
+	fmt.Printf("Hello World! Graph visualization for user '%s'\n", login)
+
+	// This function accepts the same flags as pulls command
+	// In the future, we'll implement actual graph visualization here
+	if debug {
+		org := getEffectiveOrg()
+		fmt.Printf("Debug: Would create graph for login '%s' in org '%s' since '%s'\n", login, org, since)
+	}
+}
+
 var orgConfigFunc = getOrgFromConfig // Default to the actual implementation
 
 // Function to read the organization from the GitHub CLI config file
@@ -576,6 +597,7 @@ func printHelp(client GitHubClient) {
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  all <username>     - Get all Pull Requests and Issues by <username> in the 'github' (or specified) org.")
 	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument.")
+	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
 	flag.PrintDefaults()
 }
