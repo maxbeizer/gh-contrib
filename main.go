@@ -577,7 +577,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	sinceDate, _ := time.Parse(dateFormat, since)
 	today := time.Now()
 	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
-	
+
 	// Combined count of all contributions
 	totalContributions := len(prItems) + len(issueItems)
 	averageContributions := float64(totalContributions) / float64(daysActive)
@@ -587,7 +587,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	weekStartDates := make(map[string]time.Time) // For sorting later
 
 	// Initialize all weeks in the range, regardless of whether they have contributions
-	totalWeeks := int(today.Sub(sinceDate).Hours() / (24 * 7)) + 1
+	totalWeeks := int(today.Sub(sinceDate).Hours()/(24*7)) + 1
 	for i := 0; i < totalWeeks; i++ {
 		weekStart := sinceDate.AddDate(0, 0, i*7)
 		weekEnd := weekStart.AddDate(0, 0, 6)
@@ -598,7 +598,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 			i+1,
 			weekStart.Format("Jan 02"),
 			weekEnd.Format("Jan 02"))
-		
+
 		// Use a consistent key format to avoid duplicates
 		weekMap[weekKey] = 0
 		weekStartDates[weekKey] = weekStart
@@ -678,9 +678,9 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	// Print legend with only relevant symbols
 	fmt.Println("Legend:")
-	
+
 	var legendParts []string
-	
+
 	// Only include PR symbols in the legend if we have PRs
 	if len(prItems) > 0 {
 		if closedPRs > 0 {
@@ -690,7 +690,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 			legendParts = append(legendParts, "○ = Open PR")
 		}
 	}
-	
+
 	// Only include Issue symbols in the legend if we have Issues
 	if len(issueItems) > 0 {
 		if closedIssues > 0 {
@@ -700,7 +700,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 			legendParts = append(legendParts, "□ = Open Issue")
 		}
 	}
-	
+
 	fmt.Println(strings.Join(legendParts, "  "))
 	fmt.Println()
 
