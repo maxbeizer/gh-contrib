@@ -214,6 +214,12 @@ type GitHubItem struct {
 	} `json:"repository"`
 }
 
+// Define contribution type struct to be used as map key
+type contributionType struct {
+	itemType string // "pr" or "issue"
+	state    string // "open" or "closed"
+}
+
 type GitHubResponse struct {
 	TotalCount int          `json:"total_count"`
 	Items      []GitHubItem `json:"items"`
@@ -528,22 +534,38 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	}
 
 	// Build the query for PRs within the time range
-	query := buildQuery("is:pr", login)
-	searchURL := fmt.Sprintf("search/issues?q=%s", query)
+	prQuery := buildQuery("is:pr", login)
+	prSearchURL := fmt.Sprintf("search/issues?q=%s", prQuery)
 
 	if debug {
-		fmt.Printf("Calling GitHub API with URL: %s\n", searchURL)
+		fmt.Printf("Calling GitHub API for PRs with URL: %s\n", prSearchURL)
 	}
 
-	// Fetch all PRs using the same mechanism as handlePullsCommand
-	responseItems, err := fetchAllResults(client, searchURL)
+	// Fetch all PRs
+	prItems, err := fetchAllResults(client, prSearchURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching pull requests for graph: %v\n", err)
 		return
 	}
 
-	if len(responseItems) == 0 {
-		fmt.Printf("No pull requests found for user '%s' in the '%s' organization since %s.\n", login, org, since)
+	// Build the query for Issues within the time range
+	issueQuery := buildQuery("is:issue", login)
+	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
+
+	if debug {
+		fmt.Printf("Calling GitHub API for Issues with URL: %s\n", issueSearchURL)
+	}
+
+	// Fetch all Issues
+	issueItems, err := fetchAllResults(client, issueSearchURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching issues for graph: %v\n", err)
+		return
+	}
+
+	// Check if there are any results to display
+	if len(prItems) == 0 && len(issueItems) == 0 {
+		fmt.Printf("No contributions found for user '%s' in the '%s' organization since %s.\n", login, org, since)
 		return
 	}
 
@@ -551,64 +573,41 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	if debug {
 		fmt.Printf("Graph visualization for user '%s' in org '%s' since %s:\n\n", login, org, since)
 	}
-
 	// Parse the since date and calculate stats
 	sinceDate, _ := time.Parse(dateFormat, since)
 	today := time.Now()
 	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
-	averagePRs := float64(len(responseItems)) / float64(daysActive)
+	
+	// Combined count of all contributions
+	totalContributions := len(prItems) + len(issueItems)
+	averageContributions := float64(totalContributions) / float64(daysActive)
 
-	// Group PRs by week based on closed_at date
+	// Group contributions by week
 	weekMap := make(map[string]int)
 	weekStartDates := make(map[string]time.Time) // For sorting later
 
-	for _, item := range responseItems {
-		// Use closed_at date if available, otherwise fall back to created_at
-		var prDate time.Time
-		var err error
-
-		if item.ClosedAt != "" {
-			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
-			if err != nil {
-				// If we can't parse closed_at, try using created_at
-				if item.CreatedAt != "" {
-					prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
-					if err != nil {
-						// If all parsing fails, use current date as fallback
-						prDate = time.Now()
-					}
-				} else {
-					prDate = time.Now()
-				}
-			}
-		} else if item.CreatedAt != "" {
-			prDate, err = time.Parse(time.RFC3339, item.CreatedAt)
-			if err != nil {
-				// If parsing fails, use current date as fallback
-				prDate = time.Now()
-			}
-		} else {
-			// No date available, use current date as fallback
-			prDate = time.Now()
-		}
-
-		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
-		if weekNumber < 0 {
-			// Handle PRs that were closed before the since date
-			// This shouldn't happen with the API query, but just in case
-			weekNumber = 0
-		}
-
-		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+	// Initialize all weeks in the range, regardless of whether they have contributions
+	totalWeeks := int(today.Sub(sinceDate).Hours() / (24 * 7)) + 1
+	for i := 0; i < totalWeeks; i++ {
+		weekStart := sinceDate.AddDate(0, 0, i*7)
 		weekEnd := weekStart.AddDate(0, 0, 6)
+		if weekEnd.After(today) {
+			weekEnd = today
+		}
 		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
-			weekNumber+1,
+			i+1,
 			weekStart.Format("Jan 02"),
 			weekEnd.Format("Jan 02"))
-
-		weekMap[weekKey]++
+		
+		// Use a consistent key format to avoid duplicates
+		weekMap[weekKey] = 0
 		weekStartDates[weekKey] = weekStart
 	}
+
+	// Process PRs
+	processItems(prItems, sinceDate, weekMap, weekStartDates)
+	// Process Issues
+	processItems(issueItems, sinceDate, weekMap, weekStartDates)
 
 	// Sort the weeks chronologically
 	weeks := make([]string, 0, len(weekMap))
@@ -621,71 +620,101 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		return weekStartDates[weeks[i]].Before(weekStartDates[weeks[j]])
 	})
 
-	// Print the histogram with closed/open PR indicators
-	// Track PRs by state for each week
-	weekStateMap := make(map[string]map[string]int)
+	// Track contributions by type and state for each week
+	weekContributionMap := make(map[string]map[contributionType]int)
 	for week := range weekMap {
-		weekStateMap[week] = make(map[string]int)
+		weekContributionMap[week] = make(map[contributionType]int)
 	}
 
 	// Count PRs by state for each week
-	for _, item := range responseItems {
-		// Use closed_at or created_at date to determine the week
-		var prDate time.Time
-		var err error
+	countItemsByWeek(prItems, "pr", sinceDate, weekContributionMap)
+	// Count Issues by state for each week
+	countItemsByWeek(issueItems, "issue", sinceDate, weekContributionMap)
 
-		if item.ClosedAt != "" {
-			prDate, err = time.Parse(time.RFC3339, item.ClosedAt)
-			if err != nil && item.CreatedAt != "" {
-				prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
-			}
-		} else if item.CreatedAt != "" {
-			prDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
-		} else {
-			prDate = time.Now()
-		}
+	// Track counts for summary
+	closedPRs := 0
+	openPRs := 0
+	closedIssues := 0
+	openIssues := 0
 
-		weekNumber := int(prDate.Sub(sinceDate).Hours() / (24 * 7))
-		if weekNumber < 0 {
-			weekNumber = 0
-		}
-
-		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
-		weekEnd := weekStart.AddDate(0, 0, 6)
-		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
-			weekNumber+1,
-			weekStart.Format("Jan 02"),
-			weekEnd.Format("Jan 02"))
-
-		weekStateMap[weekKey][item.State]++
-	}
-
-	// Print the histogram with separate symbols for closed and open PRs
+	// Print the histogram with different symbols for different contribution types
 	for _, week := range weeks {
-		closed := weekStateMap[week]["closed"]
-		open := weekStateMap[week]["open"]
+		closedPR := weekContributionMap[week][contributionType{"pr", "closed"}]
+		openPR := weekContributionMap[week][contributionType{"pr", "open"}]
+		closedIssue := weekContributionMap[week][contributionType{"issue", "closed"}]
+		openIssue := weekContributionMap[week][contributionType{"issue", "open"}]
+
+		// Update summary counts
+		closedPRs += closedPR
+		openPRs += openPR
+		closedIssues += closedIssue
+		openIssues += openIssue
 
 		fmt.Printf("%s: ", week)
 
-		// Print closed PRs first with • symbol
-		for i := 0; i < closed; i++ {
+		// Print closed PRs with • symbol
+		for i := 0; i < closedPR; i++ {
 			fmt.Print("•")
 		}
 
-		// Print open PRs with o symbol
-		for i := 0; i < open; i++ {
+		// Print open PRs with ○ symbol
+		for i := 0; i < openPR; i++ {
 			fmt.Print("○")
+		}
+
+		// Print closed issues with ■ symbol
+		for i := 0; i < closedIssue; i++ {
+			fmt.Print("■")
+		}
+
+		// Print open issues with □ symbol
+		for i := 0; i < openIssue; i++ {
+			fmt.Print("□")
 		}
 
 		fmt.Print("\n")
 	}
 	fmt.Println()
 
+	// Print legend with only relevant symbols
+	fmt.Println("Legend:")
+	
+	var legendParts []string
+	
+	// Only include PR symbols in the legend if we have PRs
+	if len(prItems) > 0 {
+		if closedPRs > 0 {
+			legendParts = append(legendParts, "• = Closed PR")
+		}
+		if openPRs > 0 {
+			legendParts = append(legendParts, "○ = Open PR")
+		}
+	}
+	
+	// Only include Issue symbols in the legend if we have Issues
+	if len(issueItems) > 0 {
+		if closedIssues > 0 {
+			legendParts = append(legendParts, "■ = Closed Issue")
+		}
+		if openIssues > 0 {
+			legendParts = append(legendParts, "□ = Open Issue")
+		}
+	}
+	
+	fmt.Println(strings.Join(legendParts, "  "))
+	fmt.Println()
+
 	// Print summary with date information
-	fmt.Printf("Total PRs: %d over %d days (avg: %.2f PRs per day)\n",
-		len(responseItems),
+	fmt.Printf("Total Contributions: %d over %d days (avg: %.2f per day)\n",
+		totalContributions,
 		daysActive,
-		averagePRs)
+		averageContributions)
+
+	fmt.Printf("PRs: %d total (%d closed, %d open)\n",
+		len(prItems), closedPRs, openPRs)
+
+	fmt.Printf("Issues: %d total (%d closed, %d open)\n",
+		len(issueItems), closedIssues, openIssues)
 }
 
 var orgConfigFunc = getOrgFromConfig // Default to the actual implementation
@@ -892,4 +921,101 @@ func getModelFromConfig() string {
 	}
 
 	return defaultModel // Default to 'gpt-4o' if model is not configured
+}
+
+// processItems adds items to the week map for visualization
+func processItems(items []GitHubItem, sinceDate time.Time, weekMap map[string]int, weekStartDates map[string]time.Time) {
+	for _, item := range items {
+		// Use closed_at date if available, otherwise fall back to created_at
+		var itemDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			itemDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil {
+				// If we can't parse closed_at, try using created_at
+				if item.CreatedAt != "" {
+					itemDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+					if err != nil {
+						// If all parsing fails, use current date as fallback
+						itemDate = time.Now()
+					}
+				} else {
+					itemDate = time.Now()
+				}
+			}
+		} else if item.CreatedAt != "" {
+			itemDate, err = time.Parse(time.RFC3339, item.CreatedAt)
+			if err != nil {
+				// If parsing fails, use current date as fallback
+				itemDate = time.Now()
+			}
+		} else {
+			// No date available, use current date as fallback
+			itemDate = time.Now()
+		}
+
+		weekNumber := int(itemDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			// Handle items that were closed before the since date
+			// This shouldn't happen with the API query, but just in case
+			weekNumber = 0
+		}
+
+		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		// Ensure the end date doesn't go beyond today
+		now := time.Now()
+		if weekEnd.After(now) {
+			weekEnd = now
+		}
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
+			weekNumber+1,
+			weekStart.Format("Jan 02"),
+			weekEnd.Format("Jan 02"))
+
+		weekMap[weekKey]++
+		weekStartDates[weekKey] = weekStart
+	}
+}
+
+// countItemsByWeek counts items by week and state for visualization
+func countItemsByWeek(items []GitHubItem, itemType string, sinceDate time.Time, weekContributionMap map[string]map[contributionType]int) {
+	for _, item := range items {
+		// Use closed_at or created_at date to determine the week
+		var itemDate time.Time
+		var err error
+
+		if item.ClosedAt != "" {
+			itemDate, err = time.Parse(time.RFC3339, item.ClosedAt)
+			if err != nil && item.CreatedAt != "" {
+				itemDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+			}
+		} else if item.CreatedAt != "" {
+			itemDate, _ = time.Parse(time.RFC3339, item.CreatedAt)
+		} else {
+			itemDate = time.Now()
+		}
+
+		weekNumber := int(itemDate.Sub(sinceDate).Hours() / (24 * 7))
+		if weekNumber < 0 {
+			weekNumber = 0
+		}
+
+		weekStart := sinceDate.AddDate(0, 0, weekNumber*7)
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		// Ensure the end date doesn't go beyond today
+		now := time.Now()
+		if weekEnd.After(now) {
+			weekEnd = now
+		}
+		weekKey := fmt.Sprintf("Week %2d (%s - %s)",
+			weekNumber+1,
+			weekStart.Format("Jan 02"),
+			weekEnd.Format("Jan 02"))
+
+		contribType := contributionType{itemType, item.State}
+
+		weekContributionMap[weekKey][contribType]++
+	}
 }
