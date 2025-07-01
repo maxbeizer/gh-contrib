@@ -519,12 +519,19 @@ func handleSummarizeCommand(args []string, summarizer Summarizer) {
 }
 
 func handleGraphCommand(args []string, client GitHubClient) {
+	var login string
 	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib graph <login>")
-		return
+		// Fetch the logged-in user if no username is provided
+		response := struct{ Login string }{}
+		err := client.Get("user", &response)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching logged-in user: %v\n", err)
+			return
+		}
+		login = response.Login
+	} else {
+		login = args[1]
 	}
-	login := args[1]
 
 	org := getEffectiveOrg()
 

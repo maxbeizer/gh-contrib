@@ -10,6 +10,9 @@ gh ext install maxbeizer/gh-contrib
 
 ## Usage
 
+> [!NOTE]
+> If no username is passed in, the extension will default to the current user.
+
 ### List Pull Requests for a User
 
 To list all pull requests created by a specific user in the GitHub organization:
