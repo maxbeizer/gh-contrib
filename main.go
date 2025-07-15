@@ -722,6 +722,10 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	fmt.Printf("Issues: %d total (%d closed, %d open)\n",
 		len(issueItems), closedIssues, openIssues)
+
+	// Display web URL for the issues search
+	issuesWebURL := buildWebURL("is:issue", login)
+	fmt.Printf("\nView issues in GitHub: %s\n", issuesWebURL)
 }
 
 var orgConfigFunc = getOrgFromConfig // Default to the actual implementation
@@ -786,6 +790,18 @@ func buildQuery(itemType, login string) string {
 		query = url.QueryEscape(query)
 	}
 	return query
+}
+
+// buildWebURL constructs a GitHub web URL for the given query
+func buildWebURL(itemType, login string) string {
+	org := getEffectiveOrg()
+	query := fmt.Sprintf("%s org:%s author:%s sort:updated-desc", itemType, org, login)
+	if since != "" {
+		query += fmt.Sprintf(" created:>%s", since)
+	}
+	// URL encode the query for the web interface
+	encodedQuery := url.QueryEscape(query)
+	return fmt.Sprintf("https://github.com/issues?q=%s", encodedQuery)
 }
 
 func fetchAllResults(client GitHubClient, searchURL string) ([]GitHubItem, error) {
