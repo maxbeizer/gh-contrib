@@ -363,20 +363,28 @@ func TestBuildWebURL(t *testing.T) {
 	}
 	defer func() { orgConfigFunc = originalOrgConfigFunc }()
 
-	// Test basic URL without since filter
+	// Test basic URL without since filter and without item type filter (the new behavior)
 	since = ""
-	expected := "https://github.com/issues?q=is%3Aissue+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
-	actual := buildWebURL("is:issue", testLogin)
+	expected := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
+	actual := buildWebURL("", testLogin)
 	if actual != expected {
 		t.Errorf("Expected URL '%s', got '%s'", expected, actual)
 	}
 
-	// Test URL with since filter
+	// Test URL with since filter and without item type filter
 	since = "2025-01-15"
-	expectedWithSince := "https://github.com/issues?q=is%3Aissue+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A%3E2025-01-15"
-	actualWithSince := buildWebURL("is:issue", testLogin)
+	expectedWithSince := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A%3E2025-01-15"
+	actualWithSince := buildWebURL("", testLogin)
 	if actualWithSince != expectedWithSince {
 		t.Errorf("Expected URL '%s', got '%s'", expectedWithSince, actualWithSince)
+	}
+
+	// Test with issue type (for backward compatibility)
+	since = ""
+	expectedIssue := "https://github.com/issues?q=is%3Aissue+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
+	actualIssue := buildWebURL("is:issue", testLogin)
+	if actualIssue != expectedIssue {
+		t.Errorf("Expected URL '%s', got '%s'", expectedIssue, actualIssue)
 	}
 
 	// Test with different item type

@@ -494,7 +494,7 @@ func TestHandleGraphCommand_WebURL(t *testing.T) {
 	}
 
 	// Check that the web URL is displayed
-	if !strings.Contains(stdout, "View issues in GitHub:") {
+	if !strings.Contains(stdout, "View in GitHub:") {
 		t.Errorf("Expected output to contain web URL introduction, but it doesn't.\nOutput:\n%s", stdout)
 	}
 
@@ -502,8 +502,9 @@ func TestHandleGraphCommand_WebURL(t *testing.T) {
 		t.Errorf("Expected output to contain GitHub issues URL, but it doesn't.\nOutput:\n%s", stdout)
 	}
 
-	if !strings.Contains(stdout, "is%3Aissue") {
-		t.Errorf("Expected URL to contain URL-encoded 'is:issue', but it doesn't.\nOutput:\n%s", stdout)
+	// Should NOT contain is:issue since we removed the filter
+	if strings.Contains(stdout, "is%3Aissue") {
+		t.Errorf("Expected URL to NOT contain URL-encoded 'is:issue', but it does.\nOutput:\n%s", stdout)
 	}
 
 	if !strings.Contains(stdout, "org%3Atestorg") {
