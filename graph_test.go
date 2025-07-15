@@ -431,3 +431,87 @@ func TestHandleGraphCommand_DateHandling(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleGraphCommand_WebURL(t *testing.T) {
+	resetFlags()
+	mockClient := &MockGitHubClient{}
+	testLogin := "testuser"
+	testArgs := []string{"graph", testLogin}
+
+	// Mock organization function to return "testorg"
+	originalOrgConfigFunc := orgConfigFunc
+	orgConfigFunc = func() (string, error) {
+		return "testorg", nil
+	}
+	defer func() {
+		orgConfigFunc = originalOrgConfigFunc
+	}()
+
+	// Mock API responses with minimal data
+	mockClient.GetFunc = func(path string, response interface{}) error {
+		if strings.Contains(path, "is%3Apr") {
+			// PR response
+			resp := GitHubResponse{
+				TotalCount: 1,
+				Items: []GitHubItem{
+					{
+						Number:    101,
+						Title:     "Test PR",
+						HTMLURL:   "http://example.com/pr/101",
+						State:     "open",
+						CreatedAt: time.Now().AddDate(0, 0, -1).Format(time.RFC3339),
+					},
+				},
+			}
+			data, _ := json.Marshal(resp)
+			return json.Unmarshal(data, response)
+		} else if strings.Contains(path, "is%3Aissue") {
+			// Issue response
+			resp := GitHubResponse{
+				TotalCount: 1,
+				Items: []GitHubItem{
+					{
+						Number:    201,
+						Title:     "Test Issue",
+						HTMLURL:   "http://example.com/issue/201",
+						State:     "open",
+						CreatedAt: time.Now().AddDate(0, 0, -1).Format(time.RFC3339),
+					},
+				},
+			}
+			data, _ := json.Marshal(resp)
+			return json.Unmarshal(data, response)
+		}
+		return fmt.Errorf("unexpected API call: %s", path)
+	}
+
+	stdout, stderr := captureOutput(func() {
+		handleGraphCommand(testArgs, mockClient)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	// Check that the web URL is displayed
+	if !strings.Contains(stdout, "View in GitHub:") {
+		t.Errorf("Expected output to contain web URL introduction, but it doesn't.\nOutput:\n%s", stdout)
+	}
+
+	if !strings.Contains(stdout, "https://github.com/issues?q=") {
+		t.Errorf("Expected output to contain GitHub issues URL, but it doesn't.\nOutput:\n%s", stdout)
+	}
+
+	// Should NOT contain is:issue since we removed the filter
+	if strings.Contains(stdout, "is%3Aissue") {
+		t.Errorf("Expected URL to NOT contain URL-encoded 'is:issue', but it does.\nOutput:\n%s", stdout)
+	}
+
+	if !strings.Contains(stdout, "org%3Atestorg") {
+		t.Errorf("Expected URL to contain URL-encoded 'org:testorg', but it doesn't.\nOutput:\n%s", stdout)
+	}
+
+	if !strings.Contains(stdout, "author%3Atestuser") {
+		t.Errorf("Expected URL to contain URL-encoded 'author:testuser', but it doesn't.\nOutput:\n%s", stdout)
+	}
+}

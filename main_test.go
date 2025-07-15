@@ -352,6 +352,50 @@ func TestBuildQuery(t *testing.T) {
 	}
 }
 
+func TestBuildWebURL(t *testing.T) {
+	resetFlags()
+	testLogin := "testuser"
+
+	// Mock orgConfigFunc to return 'testorg'
+	originalOrgConfigFunc := orgConfigFunc
+	orgConfigFunc = func() (string, error) {
+		return "testorg", nil
+	}
+	defer func() { orgConfigFunc = originalOrgConfigFunc }()
+
+	// Test basic URL without since filter and without item type filter (the new behavior)
+	since = ""
+	expected := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
+	actual := buildWebURL("", testLogin)
+	if actual != expected {
+		t.Errorf("Expected URL '%s', got '%s'", expected, actual)
+	}
+
+	// Test URL with since filter and without item type filter
+	since = "2025-01-15"
+	expectedWithSince := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A%3E2025-01-15"
+	actualWithSince := buildWebURL("", testLogin)
+	if actualWithSince != expectedWithSince {
+		t.Errorf("Expected URL '%s', got '%s'", expectedWithSince, actualWithSince)
+	}
+
+	// Test with issue type (for backward compatibility)
+	since = ""
+	expectedIssue := "https://github.com/issues?q=is%3Aissue+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
+	actualIssue := buildWebURL("is:issue", testLogin)
+	if actualIssue != expectedIssue {
+		t.Errorf("Expected URL '%s', got '%s'", expectedIssue, actualIssue)
+	}
+
+	// Test with different item type
+	since = ""
+	expectedPR := "https://github.com/issues?q=is%3Apr+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
+	actualPR := buildWebURL("is:pr", testLogin)
+	if actualPR != expectedPR {
+		t.Errorf("Expected URL '%s', got '%s'", expectedPR, actualPR)
+	}
+}
+
 func TestGetEffectiveOrg(t *testing.T) {
 	resetFlags()
 
