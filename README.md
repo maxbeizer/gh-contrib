@@ -1,69 +1,51 @@
-# gh-contrib
+# 📊 gh-contrib
 
-`gh-contrib` is a GitHub CLI extension to help understand your contributions on GitHub.
+> **A powerful GitHub CLI extension to visualize and understand contributions across your organization**
 
-## Installation
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go](https://img.shields.io/badge/Go-1.16+-blue.svg)](https://golang.org/)
+
+`gh-contrib` helps you track, visualize, and analyze GitHub contributions with beautiful graphs, detailed summaries, and AI-powered insights. Perfect for team leads, project managers, and developers who want to understand contribution patterns.
+
+## ✨ Features
+
+- 📈 **Visual contribution graphs** - See weekly activity patterns at a glance
+- 🔍 **Detailed contribution lists** - Pull requests, issues, and combined views
+- 🤖 **AI-powered summaries** - Automatically summarize PR/issue content
+- 🎯 **Flexible filtering** - Filter by date ranges and organizations
+- ⚡ **Fast and intuitive** - Built with Go for speed and efficiency
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
 gh ext install maxbeizer/gh-contrib
 ```
 
-## Usage
-
-> [!NOTE]
-> If no username is passed in, the extension will default to the current user.
-
-### List Pull Requests for a User
-
-To list all pull requests created by a specific user in the GitHub organization:
+### Your First Command
 
 ```bash
-gh contrib pulls <username>
+# See your own contributions from the last 30 days
+gh contrib graph
+
+# Or check someone else's contributions
+gh contrib graph octocat
 ```
 
-Replace `<username>` with the GitHub username of the user whose pull requests you want to list.
+> 💡 **Tip:** If no username is provided, the extension automatically uses your GitHub username!
 
-### List Issues for a User
+## 📖 Usage Guide
 
-To list all issues created by a specific user in the GitHub organization:
+### 📊 Visualize Contributions
+
+Create beautiful weekly contribution graphs:
 
 ```bash
-gh contrib issues <username>
+gh contrib graph [username]
 ```
 
-Replace `<username>` with the GitHub username of the user whose issues you want to list.
-
-### List All Pull Requests and Issues for a User
-
-To list all pull requests and issues created by a specific user in the GitHub organization:
-
-```bash
-gh contrib all <username>
-```
-
-Replace `<username>` with the GitHub username of the user whose pull requests and issues you want to list.
-
-### Visualize Contributions as a Graph
-
-To visualize a user's contributions (both pull requests and issues) as a weekly graph:
-
-```bash
-gh contrib graph <username>
-```
-
-Replace `<username>` with the GitHub username of the user whose contributions you want to visualize.
-
-The graph displays:
-
-- Week-by-week visualization of contributions
-- Different symbols for different contribution types:
-  - • = Closed PR
-  - ○ = Open PR
-  - ■ = Closed Issue
-  - □ = Open Issue
-- Summary statistics including total PRs, total issues, and completion rates
-
-Example output:
+**Example output:**
 
 ```
 Week  1 (Apr 15 - Apr 21): •□■
@@ -78,122 +60,170 @@ PRs: 4 total (3 closed, 1 open)
 Issues: 3 total (1 closed, 2 open)
 ```
 
-### Summarize Pull Request or Issue Bodies
+### 🔍 List Contributions
 
-To summarize pull request or issue bodies passed via stdin, separated by the delimiter `---END-OF-ENTRY---`:
+**Pull Requests Only:**
+
+```bash
+gh contrib pulls [username]
+```
+
+**Issues Only:**
+
+```bash
+gh contrib issues [username]
+```
+
+**Everything Together:**
+
+```bash
+gh contrib all [username]
+```
+
+### 🤖 AI-Powered Summaries
+
+Summarize multiple PR/issue descriptions using AI:
 
 ```bash
 gh contrib summarize
 ```
 
-This command processes each entry individually and provides a summary in bullet points.
+Pass content via stdin, separated by `---END-OF-ENTRY---` delimiters.
 
-### Debug Mode
+### 🐛 Debug Mode
 
-To enable debug mode and see additional information during execution, use the `--debug` flag:
+Get detailed execution information:
 
 ```bash
-gh contrib --debug pulls <username>
+gh contrib --debug graph octocat
 ```
 
-## Examples
+## 🎛️ Advanced Options
+
+### 📅 Date Filtering
+
+Filter contributions by date range:
 
 ```bash
-# List all pull requests for a user
-gh contrib pulls octocat
+# Get contributions since a specific date
+gh contrib --since 2025-04-01 pulls octocat
 
-# Visualize a user's contribution history as a graph
-gh contrib graph octocat
+# Works with all commands
+gh contrib --since 2025-04-01 graph octocat
 ```
 
-These will display pull requests created by the user `octocat` in the GitHub organization, sorted by the most recently created, or visualize their contributions over time as a graph.
+**Date format:** `YYYY-MM-DD` (defaults to 30 days ago if not specified)
 
-## Requirements
+### 📝 Content Focus
 
-- Go 1.16 or later
-- GitHub CLI installed and authenticated
-
-## Flags
-
-### `--since`
-
-Use the `--since` flag to filter contributions created since a specific date. The date should be in the format `YYYY-MM-DD`. If not provided, it defaults to 30 days before the current date. This applies to all commands including `pulls`, `issues`, `all`, and `graph`.
-
-Examples:
+Get just the content without metadata:
 
 ```bash
-gh contrib --since 2025-04-01 pulls <username>
-gh contrib --since 2025-04-01 graph <username>
+# Show only PR/issue body content
+gh contrib --body-only pulls octocat
 ```
 
-### `--body-only`
+### 🏢 Organization Override
 
-Use the `--body-only` flag to fetch and print only the body of the pull requests/issues.
-
-Example:
+Query different organizations on the fly:
 
 ```bash
-gh contrib --body-only pulls <username>
+# Check contributions in a specific org
+gh contrib --org primer pulls octocat
 ```
 
-### `--org`
+> ⚠️ **Note:** GitHub's search API doesn't support OR queries, so you can only query one organization at a time.
 
-Use the `--org` flag to override the configured organization for a specific command. This is useful if you want to temporarily query a different organization without changing the configuration.
+### 🤖 AI Model Selection
 
-Example:
-
-```bash
-gh contrib --org primer pulls <username>
-```
-
-This will fetch pull requests authored by `<username>` in the `primer` organization, regardless of the configured organization.
-
-> [!NOTE]
-> The search API does not currently support `OR` queries so as of this writing you can only query one org at a time :(
-
-### `--model`
-
-Use the `--model` flag to override the AI model used for summarization. This will override the `model` key in the configuration or the default `gpt-4o`.
-
-Example:
+Choose your preferred AI model for summaries:
 
 ```bash
-# Override the model when summarizing entries
+# Use a specific model for summarization
 gh contrib --model gpt-3.5 summarize
 ```
 
-See this page of list of available models https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
+[View available models →](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models)
 
-## Configuration
+## ⚙️ Configuration
 
-To configure the organization or model used by `gh-contrib`, update the `~/.config/gh/config.yml` file under the `extensions` block for the `gh-contrib` extension. For example:
+Customize default settings in `~/.config/gh/config.yml`:
 
 ```yaml
 extensions:
   gh-contrib:
-    org: my-custom-org
-    model: gpt-4o
+    org: my-custom-org # Default organization
+    model: gpt-4o # Default AI model
 ```
 
-- Replace `my-custom-org` with the desired organization name. If the `org` key is not set, the tool defaults to using `github` as the organization.
-- Replace `gpt-4o` with the desired model name. If the `model` key is not set, the tool defaults to using `gpt-4o` as the model.
+**Configuration options:**
 
-## Testing
+- `org`: Default organization name (fallback: `github`)
+- `model`: Default AI model (fallback: `gpt-4o`)
 
-To run the automated test suite (including race condition detection and timeouts), execute the `script/test` script:
+## 🛠️ Development & Testing
+
+### Prerequisites
+
+- Go 1.16 or later
+- GitHub CLI installed and authenticated
+
+### Quick Development
+
+```bash
+# Build and test locally
+make build
+
+# Run tests
+make test
+
+# See all available commands
+make help
+```
+
+### Testing
+
+Run the comprehensive test suite:
 
 ```bash
 ./script/test
 ```
 
-## Development
+Includes race condition detection and timeout handling.
 
-This project includes a `Makefile` to streamline common development tasks.
+## 💡 Pro Tips
 
-- **`make build`**: Compiles the Go binary and reinstalls the `gh` extension from the local source. This is useful for testing changes quickly.
-- **`make test`**: Runs the automated test suite using the `./script/test` runner.
-- **`make help`** or **`make`**: Displays a list of available `make` commands and their descriptions.
+- **🔄 Default behavior:** All commands default to your own username when none is provided
+- **📊 Best visualization:** Use `graph` command for quick visual insights
+- **🎯 Focused analysis:** Combine `--since` with specific date ranges for targeted analysis
+- **🏃‍♂️ Quick debugging:** Add `--debug` to any command for detailed execution info
 
-## License
+## 📋 Examples
+
+```bash
+# Quick personal overview
+gh contrib graph
+
+# Team member analysis (last 2 weeks)
+gh contrib --since 2025-07-15 all teammate
+
+# Organization-specific search
+gh contrib --org microsoft pulls octocat
+
+# Debug a slow query
+gh contrib --debug --since 2025-01-01 graph octocat
+```
+
+## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+**Made with ❤️ for the GitHub community**
+
+[Report Bug](https://github.com/maxbeizer/gh-contrib/issues) • [Request Feature](https://github.com/maxbeizer/gh-contrib/issues) • [Contribute](https://github.com/maxbeizer/gh-contrib/pulls)
+
+</div>
