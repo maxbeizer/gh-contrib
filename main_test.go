@@ -363,6 +363,14 @@ func TestBuildWebURL(t *testing.T) {
 	}
 	defer func() { orgConfigFunc = originalOrgConfigFunc }()
 
+	// Mock timeNowFunc to return a fixed date for predictable tests
+	originalTimeNowFunc := timeNowFunc
+	testDate := time.Date(2025, 1, 30, 12, 0, 0, 0, time.UTC)
+	timeNowFunc = func() time.Time {
+		return testDate
+	}
+	defer func() { timeNowFunc = originalTimeNowFunc }()
+
 	// Test basic URL without since filter and without item type filter (the new behavior)
 	since = ""
 	expected := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc"
@@ -371,9 +379,9 @@ func TestBuildWebURL(t *testing.T) {
 		t.Errorf("Expected URL '%s', got '%s'", expected, actual)
 	}
 
-	// Test URL with since filter and without item type filter
+	// Test URL with since filter and without item type filter - now uses date range
 	since = "2025-01-15"
-	expectedWithSince := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A%3E2025-01-15"
+	expectedWithSince := "https://github.com/issues?q=org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A2025-01-15..2025-01-30"
 	actualWithSince := buildWebURL("", testLogin)
 	if actualWithSince != expectedWithSince {
 		t.Errorf("Expected URL '%s', got '%s'", expectedWithSince, actualWithSince)
@@ -393,6 +401,14 @@ func TestBuildWebURL(t *testing.T) {
 	actualPR := buildWebURL("is:pr", testLogin)
 	if actualPR != expectedPR {
 		t.Errorf("Expected URL '%s', got '%s'", expectedPR, actualPR)
+	}
+
+	// Test date range format with item type
+	since = "2025-01-20"
+	expectedPRWithRange := "https://github.com/issues?q=is%3Apr+org%3Atestorg+author%3Atestuser+sort%3Aupdated-desc+created%3A2025-01-20..2025-01-30"
+	actualPRWithRange := buildWebURL("is:pr", testLogin)
+	if actualPRWithRange != expectedPRWithRange {
+		t.Errorf("Expected URL '%s', got '%s'", expectedPRWithRange, actualPRWithRange)
 	}
 }
 

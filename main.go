@@ -729,6 +729,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 }
 
 var orgConfigFunc = getOrgFromConfig // Default to the actual implementation
+var timeNowFunc = time.Now         // Default to the actual time.Now implementation
 
 // Function to read the organization from the GitHub CLI config file
 func getOrgFromConfig() (string, error) {
@@ -802,7 +803,9 @@ func buildWebURL(itemType, login string) string {
 		query = fmt.Sprintf("org:%s author:%s sort:updated-desc", org, login)
 	}
 	if since != "" {
-		query += fmt.Sprintf(" created:>%s", since)
+		// Use date range format: created:start..end where end is today
+		today := timeNowFunc().Format(dateFormat)
+		query += fmt.Sprintf(" created:%s..%s", since, today)
 	}
 	// URL encode the query for the web interface
 	encodedQuery := url.QueryEscape(query)
