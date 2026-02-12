@@ -159,6 +159,13 @@ func (s *AzureAISummarizer) Summarize(text string) (string, error) {
 	return "", fmt.Errorf("no summary content available in the AI response")
 }
 
+// BuildPrompt constructs the prompt that would be sent to the AI endpoint
+// without making any API call. This enables composability with external
+// agentic workflows.
+func BuildPrompt(text string) string {
+	return fmt.Sprintf("System:\n%s\n\nUser:\n%s", systemPrompt, fmt.Sprintf(userPrompt, text))
+}
+
 const (
 	defaultOrg     = "github"
 	dateFormat     = "2006-01-02"
@@ -227,11 +234,12 @@ type GitHubResponse struct {
 
 // Global variables
 var (
-	debug     bool
-	since     string
-	bodyOnly  bool
-	orgFlag   string
-	modelFlag string // Global variable to store the value of the --model flag
+	debug      bool
+	since      string
+	bodyOnly   bool
+	orgFlag    string
+	modelFlag  string // Global variable to store the value of the --model flag
+	promptOnly bool   // Global variable to store the value of the --prompt-only flag
 )
 
 func init() {
@@ -241,6 +249,7 @@ func init() {
 	flag.BoolVar(&bodyOnly, "body-only", false, "Fetch and print only the body of the pull requests")
 	flag.StringVar(&orgFlag, "org", "", "Override the configured organization")
 	flag.StringVar(&modelFlag, "model", "", "Override the configured or default model")
+	flag.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
 }
 
 func main() {
@@ -252,6 +261,7 @@ func main() {
 	cmdFlags.BoolVar(&bodyOnly, "body-only", false, "Fetch and print only the body of the pull requests")
 	cmdFlags.StringVar(&orgFlag, "org", "", "Override the configured organization")
 	cmdFlags.StringVar(&modelFlag, "model", "", "Override the configured or default model")
+	cmdFlags.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
 
 	// Process all the arguments to find and extract flags anywhere in the command
 	args := os.Args[1:] // Skip the program name
@@ -274,7 +284,7 @@ func main() {
 			// Handle --flag value style
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				// Check if the flag requires a value
-				if arg == "-debug" || arg == "--debug" || arg == "-body-only" || arg == "--body-only" {
+				if arg == "-debug" || arg == "--debug" || arg == "-body-only" || arg == "--body-only" || arg == "-prompt-only" || arg == "--prompt-only" {
 					// Boolean flags don't require a value
 					cmdFlags.Parse([]string{arg})
 					i++
@@ -334,7 +344,7 @@ func main() {
 	case "all":
 		handleAllCommand(subcommandArgs, ghClient)
 	case "summarize":
-		handleSummarizeCommand(subcommandArgs, summarizer)
+		handleSummarizeCommand(subcommandArgs, summarizer, promptOnly)
 	case "graph":
 		handleGraphCommand(subcommandArgs, ghClient)
 	default:
@@ -487,7 +497,7 @@ func handleAllCommand(args []string, client GitHubClient) {
 	}
 }
 
-func handleSummarizeCommand(args []string, summarizer Summarizer) {
+func handleSummarizeCommand(args []string, summarizer Summarizer, promptOnly bool) {
 	var input string
 	if len(args) > 1 {
 		input = args[1]
@@ -505,6 +515,11 @@ func handleSummarizeCommand(args []string, summarizer Summarizer) {
 	for _, entry := range entries {
 		entry = strings.TrimSpace(entry) // Trim any extra whitespace
 		if entry == "" {
+			continue
+		}
+
+		if promptOnly {
+			fmt.Println(BuildPrompt(entry))
 			continue
 		}
 
@@ -872,7 +887,7 @@ func printHelp(client GitHubClient) {
 	fmt.Println("  pulls <username>   - Get Pull Requests authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  all <username>     - Get all Pull Requests and Issues by <username> in the 'github' (or specified) org.")
-	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument.")
+	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument. Use --prompt-only to output the raw prompt.")
 	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
 	flag.PrintDefaults()
