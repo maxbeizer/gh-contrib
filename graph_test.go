@@ -26,7 +26,7 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 	week3Date := fixedOneMonthAgo.AddDate(0, 0, 17) // 17 days after since date (Week 3)
 
 	mockClient.GetFunc = func(path string, response interface{}) error {
-		if strings.Contains(path, "is%3Apr") {
+		if strings.Contains(path, "is%3Apr") && strings.Contains(path, "author%3A") {
 			// PR response
 			resp := GitHubResponse{
 				TotalCount: 3,
@@ -57,6 +57,11 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 					},
 				},
 			}
+			data, _ := json.Marshal(resp)
+			return json.Unmarshal(data, response)
+		} else if strings.Contains(path, "is%3Apr") && strings.Contains(path, "reviewed-by%3A") {
+			// Reviews response - empty
+			resp := GitHubResponse{TotalCount: 0, Items: []GitHubItem{}}
 			data, _ := json.Marshal(resp)
 			return json.Unmarshal(data, response)
 		} else if strings.Contains(path, "is%3Aissue") {
@@ -127,8 +132,8 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 	}
 
 	// Check API calls
-	if len(mockClient.GetCalls) != 2 {
-		t.Errorf("Expected 2 API calls (PRs + Issues), got %d", len(mockClient.GetCalls))
+	if len(mockClient.GetCalls) != 3 {
+		t.Errorf("Expected 3 API calls (PRs + Reviews + Issues), got %d", len(mockClient.GetCalls))
 	}
 }
 

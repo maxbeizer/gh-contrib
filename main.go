@@ -169,8 +169,10 @@ const (
 	startOfEntry   = "---START-OF-ENTRY---"
 	startOfPR      = "---START-OF-PR---"
 	startOfIssue   = "---START-OF-ISSUE---"
+	startOfReview  = "---START-OF-REVIEW---"
 	endOfPR        = "---END-OF-PR---"
 	endOfIssue     = "---END-OF-ISSUE---"
+	endOfReview    = "---END-OF-REVIEW---"
 
 	systemPrompt = `You are an expert engineering manager assistant designed to
 	summarize the bodies of GitHub issues and pull requests. Your goal is to
@@ -329,6 +331,8 @@ func main() {
 	switch cmd {
 	case "pulls":
 		handlePullsCommand(subcommandArgs, ghClient)
+	case "reviews":
+		handleReviewsCommand(subcommandArgs, ghClient)
 	case "issues":
 		handleIssuesCommand(subcommandArgs, ghClient)
 	case "all":
@@ -376,6 +380,45 @@ func handlePullsCommand(args []string, client GitHubClient) {
 
 	if bodyOnly {
 		printBodies(responseItems, startOfPR, endOfPR)
+		return
+	}
+
+	printPullRequestsAsCSV(responseItems)
+}
+
+func handleReviewsCommand(args []string, client GitHubClient) {
+	if len(args) < 2 {
+		fmt.Println("Error: login argument is required")
+		fmt.Println("Usage: gh-contrib reviews <login>")
+		return
+	}
+	login := args[1]
+
+	org, err := orgConfigFunc()
+	if err != nil {
+		org = defaultOrg
+	}
+
+	query := buildReviewQuery(login)
+	searchURL := fmt.Sprintf("search/issues?q=%s", query)
+
+	if debug {
+		fmt.Printf("Calling GitHub API with URL: %s\n", searchURL)
+	}
+
+	responseItems, err := fetchAllResults(client, searchURL)
+	if err != nil {
+		fmt.Println("Error fetching reviews:", err)
+		return
+	}
+
+	if len(responseItems) == 0 {
+		fmt.Printf("No reviewed pull requests found for user '%s' in the '%s' organization.\n", login, org)
+		return
+	}
+
+	if bodyOnly {
+		printBodies(responseItems, startOfReview, endOfReview)
 		return
 	}
 
@@ -441,6 +484,21 @@ func handleAllCommand(args []string, client GitHubClient) {
 		return
 	}
 
+	reviewQuery := buildReviewQuery(login)
+	reviewSearchURL := fmt.Sprintf("search/issues?q=%s", reviewQuery)
+	if debug {
+		fmt.Printf("Calling GitHub API for reviews with URL: %s\n", reviewSearchURL)
+	}
+
+	reviewItems, err := fetchAllResults(client, reviewSearchURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching reviews: %v\n", err)
+		return
+	}
+
+	// Deduplicate: remove reviews that the user also authored (already in prItems)
+	reviewItems = deduplicateItems(prItems, reviewItems)
+
 	issueQuery := buildQuery("is:issue", login)
 	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
 	if debug {
@@ -456,6 +514,7 @@ func handleAllCommand(args []string, client GitHubClient) {
 	if bodyOnly {
 
 		printBodies(prItems, startOfPR, endOfPR)
+		printBodies(reviewItems, startOfReview, endOfReview)
 		printBodies(issueItems, startOfIssue, endOfIssue)
 		return
 	}
@@ -473,6 +532,16 @@ func handleAllCommand(args []string, client GitHubClient) {
 			pr.HTMLURL + " ",
 			pr.Title,
 			pr.State,
+		})
+	}
+
+	// Write reviews
+	for _, review := range reviewItems {
+		writer.Write([]string{
+			"Review",
+			review.HTMLURL + " ",
+			review.Title,
+			review.State,
 		})
 	}
 
@@ -555,6 +624,24 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		return
 	}
 
+	// Build the query for Reviews within the time range
+	reviewQuery := buildReviewQuery(login)
+	reviewSearchURL := fmt.Sprintf("search/issues?q=%s", reviewQuery)
+
+	if debug {
+		fmt.Printf("Calling GitHub API for Reviews with URL: %s\n", reviewSearchURL)
+	}
+
+	// Fetch all Reviews
+	reviewItems, err := fetchAllResults(client, reviewSearchURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching reviews for graph: %v\n", err)
+		return
+	}
+
+	// Deduplicate: remove reviews that the user also authored
+	reviewItems = deduplicateItems(prItems, reviewItems)
+
 	// Build the query for Issues within the time range
 	issueQuery := buildQuery("is:issue", login)
 	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
@@ -571,7 +658,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	}
 
 	// Check if there are any results to display
-	if len(prItems) == 0 && len(issueItems) == 0 {
+	if len(prItems) == 0 && len(reviewItems) == 0 && len(issueItems) == 0 {
 		fmt.Printf("No contributions found for user '%s' in the '%s' organization since %s.\n", login, org, since)
 		return
 	}
@@ -586,7 +673,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
 
 	// Combined count of all contributions
-	totalContributions := len(prItems) + len(issueItems)
+	totalContributions := len(prItems) + len(reviewItems) + len(issueItems)
 	averageContributions := float64(totalContributions) / float64(daysActive)
 
 	// Group contributions by week
@@ -613,6 +700,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	// Process PRs
 	processItems(prItems, sinceDate, weekMap, weekStartDates)
+	// Process Reviews
+	processItems(reviewItems, sinceDate, weekMap, weekStartDates)
 	// Process Issues
 	processItems(issueItems, sinceDate, weekMap, weekStartDates)
 
@@ -635,12 +724,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	// Count PRs by state for each week
 	countItemsByWeek(prItems, "pr", sinceDate, weekContributionMap)
+	// Count Reviews by state for each week
+	countItemsByWeek(reviewItems, "review", sinceDate, weekContributionMap)
 	// Count Issues by state for each week
 	countItemsByWeek(issueItems, "issue", sinceDate, weekContributionMap)
 
 	// Track counts for summary
 	closedPRs := 0
 	openPRs := 0
+	closedReviews := 0
+	openReviews := 0
 	closedIssues := 0
 	openIssues := 0
 
@@ -648,12 +741,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	for _, week := range weeks {
 		closedPR := weekContributionMap[week][contributionType{"pr", "closed"}]
 		openPR := weekContributionMap[week][contributionType{"pr", "open"}]
+		closedReview := weekContributionMap[week][contributionType{"review", "closed"}]
+		openReview := weekContributionMap[week][contributionType{"review", "open"}]
 		closedIssue := weekContributionMap[week][contributionType{"issue", "closed"}]
 		openIssue := weekContributionMap[week][contributionType{"issue", "open"}]
 
 		// Update summary counts
 		closedPRs += closedPR
 		openPRs += openPR
+		closedReviews += closedReview
+		openReviews += openReview
 		closedIssues += closedIssue
 		openIssues += openIssue
 
@@ -667,6 +764,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		// Print open PRs with ○ symbol
 		for i := 0; i < openPR; i++ {
 			fmt.Print("○")
+		}
+
+		// Print closed reviews with ◆ symbol
+		for i := 0; i < closedReview; i++ {
+			fmt.Print("◆")
+		}
+
+		// Print open reviews with ◇ symbol
+		for i := 0; i < openReview; i++ {
+			fmt.Print("◇")
 		}
 
 		// Print closed issues with ■ symbol
@@ -698,6 +805,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		}
 	}
 
+	// Only include Review symbols in the legend if we have Reviews
+	if len(reviewItems) > 0 {
+		if closedReviews > 0 {
+			legendParts = append(legendParts, "◆ = Closed Review")
+		}
+		if openReviews > 0 {
+			legendParts = append(legendParts, "◇ = Open Review")
+		}
+	}
+
 	// Only include Issue symbols in the legend if we have Issues
 	if len(issueItems) > 0 {
 		if closedIssues > 0 {
@@ -719,6 +836,9 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	fmt.Printf("PRs: %d total (%d closed, %d open)\n",
 		len(prItems), closedPRs, openPRs)
+
+	fmt.Printf("Reviews: %d total (%d closed, %d open)\n",
+		len(reviewItems), closedReviews, openReviews)
 
 	fmt.Printf("Issues: %d total (%d closed, %d open)\n",
 		len(issueItems), closedIssues, openIssues)
@@ -793,6 +913,16 @@ func buildQuery(itemType, login string) string {
 	return query
 }
 
+func buildReviewQuery(login string) string {
+	org := getEffectiveOrg()
+	query := fmt.Sprintf("is:pr org:%s reviewed-by:%s sort:created-desc", org, login)
+	if since != "" {
+		query += fmt.Sprintf(" created:>%s", since)
+		query = url.QueryEscape(query)
+	}
+	return query
+}
+
 // buildWebURL constructs a GitHub web URL for the given query
 func buildWebURL(itemType, login string) string {
 	org := getEffectiveOrg()
@@ -810,6 +940,21 @@ func buildWebURL(itemType, login string) string {
 	// URL encode the query for the web interface
 	encodedQuery := url.QueryEscape(query)
 	return fmt.Sprintf("https://github.com/issues?q=%s", encodedQuery)
+}
+
+// deduplicateItems removes items from candidates that already appear in existing (by HTMLURL).
+func deduplicateItems(existing, candidates []GitHubItem) []GitHubItem {
+	seen := make(map[string]bool, len(existing))
+	for _, item := range existing {
+		seen[item.HTMLURL] = true
+	}
+	var result []GitHubItem
+	for _, item := range candidates {
+		if !seen[item.HTMLURL] {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func fetchAllResults(client GitHubClient, searchURL string) ([]GitHubItem, error) {
@@ -870,8 +1015,9 @@ func printHelp(client GitHubClient) {
 	printUserInfo(client)
 	fmt.Println("\nAvailable commands:")
 	fmt.Println("  pulls <username>   - Get Pull Requests authored by <username> in the 'github' (or specified) org.")
+	fmt.Println("  reviews <username> - Get Pull Requests reviewed by <username> in the 'github' (or specified) org.")
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
-	fmt.Println("  all <username>     - Get all Pull Requests and Issues by <username> in the 'github' (or specified) org.")
+	fmt.Println("  all <username>     - Get all Pull Requests, Reviews, and Issues by <username> in the 'github' (or specified) org.")
 	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument.")
 	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
