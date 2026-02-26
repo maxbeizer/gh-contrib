@@ -90,6 +90,8 @@ gh contrib summarize
 
 Pass content via stdin, separated by `---END-OF-ENTRY---` delimiters.
 
+> 💡 **Note:** The `summarize` command uses **GitHub Models** — a cloud-based AI service powered by Azure. No local AI installation is needed; summaries are generated in the cloud using your GitHub authentication.
+
 ### 🐛 Debug Mode
 
 Get detailed execution information:
@@ -136,14 +138,16 @@ gh contrib --org primer pulls octocat
 
 ### 🤖 AI Model Selection
 
-Choose your preferred AI model for summaries:
+Choose your preferred GitHub Models (cloud AI) model for summaries:
 
 ```bash
 # Use a specific model for summarization
 gh contrib --model gpt-3.5 summarize
 ```
 
-[View available models →](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models)
+> 💡 **What is "model"?** GitHub Models provides free access to hosted AI models (such as `gpt-4o`) running in the cloud. The `--model` flag lets you choose which cloud AI model to use for the `summarize` command.
+
+[View available GitHub Models →](https://github.com/marketplace/models)
 
 ## ⚙️ Configuration
 
@@ -159,7 +163,7 @@ extensions:
 **Configuration options:**
 
 - `org`: Default organization name (fallback: `github`)
-- `model`: Default AI model (fallback: `gpt-4o`)
+- `model`: Default GitHub Models (cloud AI) model name (fallback: `gpt-4o`)
 
 ## 🛠️ Development & Testing
 

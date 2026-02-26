@@ -275,7 +275,7 @@ func init() {
 	flag.StringVar(&since, "since", defaultSince, "Filter results created since the specified date (e.g., 2025-04-11)")
 	flag.BoolVar(&bodyOnly, "body-only", false, "Fetch and print only the body of the pull requests")
 	flag.StringVar(&orgFlag, "org", "", "Override the configured organization")
-	flag.StringVar(&modelFlag, "model", "", "Override the configured or default model")
+	flag.StringVar(&modelFlag, "model", "", "Override the configured or default GitHub Models (cloud AI) model used for summarization")
 	flag.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
 }
 
@@ -287,7 +287,7 @@ func main() {
 	cmdFlags.StringVar(&since, "since", defaultSince, "Filter results created since the specified date (e.g., 2025-04-11)")
 	cmdFlags.BoolVar(&bodyOnly, "body-only", false, "Fetch and print only the body of the pull requests")
 	cmdFlags.StringVar(&orgFlag, "org", "", "Override the configured organization")
-	cmdFlags.StringVar(&modelFlag, "model", "", "Override the configured or default model")
+	cmdFlags.StringVar(&modelFlag, "model", "", "Override the configured or default GitHub Models (cloud AI) model used for summarization")
 	cmdFlags.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
 
 	// Process all the arguments to find and extract flags anywhere in the command
@@ -1254,7 +1254,7 @@ func printHelp(client GitHubClient) {
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  discussions <username> - Get Discussions authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  all <username>     - Get all Pull Requests, Reviews, Issues, and Discussions by <username> in the 'github' (or specified) org.")
-	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument. Use --prompt-only to output the raw prompt.")
+	fmt.Println("  summarize          - Summarize PR/Issue bodies using GitHub Models (cloud AI) from stdin or argument. Use --prompt-only to output the raw prompt.")
 	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
 	flag.PrintDefaults()
