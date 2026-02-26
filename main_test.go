@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -19,26 +20,30 @@ type MockGitHubClient struct {
 	GetFunc func(path string, response interface{}) error
 	// GetCalls records the paths called with Get.
 	GetCalls []string
+	mu       sync.Mutex
 }
 
 func (m *MockGitHubClient) Get(path string, response interface{}) error {
+	m.mu.Lock()
 	m.GetCalls = append(m.GetCalls, path)
+	m.mu.Unlock()
 	if m.GetFunc != nil {
 		return m.GetFunc(path, response)
 	}
-	// Default behavior: return empty response
-	// You might want to return specific errors or data based on path in GetFunc
 	return nil
 }
 
 // MockGraphQLClient simulates the GitHub GraphQL API client.
 type MockGraphQLClient struct {
-	DoFunc func(query string, variables map[string]interface{}, response interface{}) error
+	DoFunc  func(query string, variables map[string]interface{}, response interface{}) error
 	DoCalls []string
+	mu      sync.Mutex
 }
 
 func (m *MockGraphQLClient) Do(query string, variables map[string]interface{}, response interface{}) error {
+	m.mu.Lock()
 	m.DoCalls = append(m.DoCalls, query)
+	m.mu.Unlock()
 	if m.DoFunc != nil {
 		return m.DoFunc(query, variables, response)
 	}
