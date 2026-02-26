@@ -376,7 +376,7 @@ func main() {
 	case "issues":
 		handleIssuesCommand(subcommandArgs, ghClient)
 	case "discussions":
-		handleDiscussionsCommand(subcommandArgs, gqlClient)
+		handleDiscussionsCommand(subcommandArgs, ghClient, gqlClient)
 	case "all":
 		handleAllCommand(subcommandArgs, ghClient, gqlClient)
 	case "summarize":
@@ -390,12 +390,11 @@ func main() {
 }
 
 func handlePullsCommand(args []string, client GitHubClient) {
-	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib pulls <login>")
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	login := args[1]
 
 	org, err := orgConfigFunc()
 	if err != nil {
@@ -429,12 +428,11 @@ func handlePullsCommand(args []string, client GitHubClient) {
 }
 
 func handleReviewsCommand(args []string, client GitHubClient) {
-	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib reviews <login>")
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	login := args[1]
 
 	org, err := orgConfigFunc()
 	if err != nil {
@@ -467,13 +465,12 @@ func handleReviewsCommand(args []string, client GitHubClient) {
 	printPullRequestsAsCSV(responseItems)
 }
 
-func handleDiscussionsCommand(args []string, gqlClient GraphQLClient) {
-	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib discussions <login>")
+func handleDiscussionsCommand(args []string, client GitHubClient, gqlClient GraphQLClient) {
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	login := args[1]
 
 	org := getEffectiveOrg()
 
@@ -497,12 +494,11 @@ func handleDiscussionsCommand(args []string, gqlClient GraphQLClient) {
 }
 
 func handleIssuesCommand(args []string, client GitHubClient) {
-	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib issues <login>")
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	login := args[1]
 
 	org, err := orgConfigFunc()
 	if err != nil {
@@ -536,12 +532,11 @@ func handleIssuesCommand(args []string, client GitHubClient) {
 }
 
 func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClient) {
-	if len(args) < 2 {
-		fmt.Println("Error: login argument is required")
-		fmt.Println("Usage: gh-contrib all <login>")
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	login := args[1]
 
 	org, err := orgConfigFunc()
 	if err != nil {
@@ -689,18 +684,10 @@ func handleSummarizeCommand(args []string, summarizer Summarizer, promptOnly boo
 }
 
 func handleGraphCommand(args []string, client GitHubClient, gqlClient GraphQLClient) {
-	var login string
-	if len(args) < 2 {
-		// Fetch the logged-in user if no username is provided
-		response := struct{ Login string }{}
-		err := client.Get("user", &response)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching logged-in user: %v\n", err)
-			return
-		}
-		login = response.Login
-	} else {
-		login = args[1]
+	login, err := resolveLogin(args, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return
 	}
 
 	org := getEffectiveOrg()
@@ -1024,6 +1011,18 @@ func getOrgFromConfig() (string, error) {
 	return "", fmt.Errorf("organization not found in config file under extensions")
 }
 
+// resolveLogin returns the login from args[1] if provided, otherwise fetches the authenticated user.
+func resolveLogin(args []string, client GitHubClient) (string, error) {
+	if len(args) >= 2 {
+		return args[1], nil
+	}
+	response := struct{ Login string }{}
+	if err := client.Get("user", &response); err != nil {
+		return "", fmt.Errorf("error fetching logged-in user: %w", err)
+	}
+	return response.Login, nil
+}
+
 func getEffectiveOrg() string {
 	if orgFlag != "" {
 		return orgFlag // Use the --org flag if provided
@@ -1118,7 +1117,7 @@ type DiscussionSearchResponse struct {
 }
 
 func fetchDiscussions(gqlClient GraphQLClient, login, org, sinceDate string) ([]GitHubItem, error) {
-	query := fmt.Sprintf("author:%s org:%s type:discussion sort:created-desc", login, org)
+	query := fmt.Sprintf("author:%s org:%s sort:created-desc", login, org)
 	if sinceDate != "" {
 		query += fmt.Sprintf(" created:>%s", sinceDate)
 	}

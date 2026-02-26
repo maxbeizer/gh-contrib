@@ -830,6 +830,7 @@ func TestHandleSummarizeCommand_PromptOnlyMultipleEntries(t *testing.T) {
 
 func TestHandleDiscussionsCommand_CSV(t *testing.T) {
 	resetFlags()
+	mockClient := &MockGitHubClient{}
 	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"discussions", testLogin}
@@ -852,7 +853,7 @@ func TestHandleDiscussionsCommand_CSV(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleDiscussionsCommand(testArgs, mockGQLClient)
+		handleDiscussionsCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -876,6 +877,7 @@ func TestHandleDiscussionsCommand_CSV(t *testing.T) {
 func TestHandleDiscussionsCommand_BodyOnly(t *testing.T) {
 	resetFlags()
 	bodyOnly = true
+	mockClient := &MockGitHubClient{}
 	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"discussions", testLogin}
@@ -898,7 +900,7 @@ func TestHandleDiscussionsCommand_BodyOnly(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleDiscussionsCommand(testArgs, mockGQLClient)
+		handleDiscussionsCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
