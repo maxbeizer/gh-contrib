@@ -29,6 +29,11 @@ type GitHubClient interface {
 	Get(path string, response interface{}) error
 }
 
+// GraphQLClient defines the methods needed to interact with the GitHub GraphQL API.
+type GraphQLClient interface {
+	Do(query string, variables map[string]interface{}, response interface{}) error
+}
+
 // TokenFetcher defines the method needed to fetch an authentication token.
 type TokenFetcher interface {
 	FetchToken() (string, error)
@@ -56,6 +61,23 @@ func NewDefaultGitHubClient() (*DefaultGitHubClient, error) {
 
 func (c *DefaultGitHubClient) Get(path string, response interface{}) error {
 	return c.client.Get(path, response)
+}
+
+// DefaultGraphQLClient is the default implementation using go-gh.
+type DefaultGraphQLClient struct {
+	client *api.GraphQLClient
+}
+
+func NewDefaultGraphQLClient() (*DefaultGraphQLClient, error) {
+	client, err := api.DefaultGraphQLClient()
+	if err != nil {
+		return nil, fmt.Errorf("error creating default GitHub GraphQL client: %w", err)
+	}
+	return &DefaultGraphQLClient{client: client}, nil
+}
+
+func (c *DefaultGraphQLClient) Do(query string, variables map[string]interface{}, response interface{}) error {
+	return c.client.Do(query, variables, response)
 }
 
 // GhCliTokenFetcher fetches the token using the 'gh' CLI.
@@ -177,9 +199,11 @@ const (
 	startOfPR      = "---START-OF-PR---"
 	startOfIssue   = "---START-OF-ISSUE---"
 	startOfReview  = "---START-OF-REVIEW---"
+	startOfDiscussion = "---START-OF-DISCUSSION---"
 	endOfPR        = "---END-OF-PR---"
 	endOfIssue     = "---END-OF-ISSUE---"
 	endOfReview    = "---END-OF-REVIEW---"
+	endOfDiscussion = "---END-OF-DISCUSSION---"
 
 	systemPrompt = `You are an expert engineering manager assistant designed to
 	summarize the bodies of GitHub issues and pull requests. Your goal is to
@@ -328,6 +352,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	gqlClient, err := NewDefaultGraphQLClient()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing GitHub GraphQL client: %v\n", err)
+		os.Exit(1)
+	}
+
 	tokenFetcher := &GhCliTokenFetcher{}
 	httpClient := &http.Client{}
 	summarizer := NewAzureAISummarizer(httpClient, tokenFetcher)
@@ -345,12 +375,14 @@ func main() {
 		handleReviewsCommand(subcommandArgs, ghClient)
 	case "issues":
 		handleIssuesCommand(subcommandArgs, ghClient)
+	case "discussions":
+		handleDiscussionsCommand(subcommandArgs, gqlClient)
 	case "all":
-		handleAllCommand(subcommandArgs, ghClient)
+		handleAllCommand(subcommandArgs, ghClient, gqlClient)
 	case "summarize":
 		handleSummarizeCommand(subcommandArgs, summarizer, promptOnly)
 	case "graph":
-		handleGraphCommand(subcommandArgs, ghClient)
+		handleGraphCommand(subcommandArgs, ghClient, gqlClient)
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printHelp(ghClient)
@@ -435,6 +467,35 @@ func handleReviewsCommand(args []string, client GitHubClient) {
 	printPullRequestsAsCSV(responseItems)
 }
 
+func handleDiscussionsCommand(args []string, gqlClient GraphQLClient) {
+	if len(args) < 2 {
+		fmt.Println("Error: login argument is required")
+		fmt.Println("Usage: gh-contrib discussions <login>")
+		return
+	}
+	login := args[1]
+
+	org := getEffectiveOrg()
+
+	discussionItems, err := fetchDiscussions(gqlClient, login, org, since)
+	if err != nil {
+		fmt.Println("Error fetching discussions:", err)
+		return
+	}
+
+	if len(discussionItems) == 0 {
+		fmt.Printf("No discussions found for user '%s' in the '%s' organization.\n", login, org)
+		return
+	}
+
+	if bodyOnly {
+		printBodies(discussionItems, startOfDiscussion, endOfDiscussion)
+		return
+	}
+
+	printPullRequestsAsCSV(discussionItems)
+}
+
 func handleIssuesCommand(args []string, client GitHubClient) {
 	if len(args) < 2 {
 		fmt.Println("Error: login argument is required")
@@ -474,13 +535,21 @@ func handleIssuesCommand(args []string, client GitHubClient) {
 	printIssuesAsCSV(responseItems)
 }
 
-func handleAllCommand(args []string, client GitHubClient) {
+func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClient) {
 	if len(args) < 2 {
 		fmt.Println("Error: login argument is required")
 		fmt.Println("Usage: gh-contrib all <login>")
 		return
 	}
 	login := args[1]
+
+	org, err := orgConfigFunc()
+	if err != nil {
+		org = defaultOrg
+	}
+	if orgFlag != "" {
+		org = orgFlag
+	}
 
 	prQuery := buildQuery("is:pr", login)
 	prSearchURL := fmt.Sprintf("search/issues?q=%s", prQuery)
@@ -521,11 +590,18 @@ func handleAllCommand(args []string, client GitHubClient) {
 		return
 	}
 
+	discussionItems, err := fetchDiscussions(gqlClient, login, org, since)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching discussions: %v\n", err)
+		return
+	}
+
 	if bodyOnly {
 
 		printBodies(prItems, startOfPR, endOfPR)
 		printBodies(reviewItems, startOfReview, endOfReview)
 		printBodies(issueItems, startOfIssue, endOfIssue)
+		printBodies(discussionItems, startOfDiscussion, endOfDiscussion)
 		return
 	}
 
@@ -562,6 +638,16 @@ func handleAllCommand(args []string, client GitHubClient) {
 			issue.HTMLURL + " ",
 			issue.Title,
 			issue.State,
+		})
+	}
+
+	// Write discussions
+	for _, disc := range discussionItems {
+		writer.Write([]string{
+			"Discussion",
+			disc.HTMLURL + " ",
+			disc.Title,
+			disc.State,
 		})
 	}
 }
@@ -602,7 +688,7 @@ func handleSummarizeCommand(args []string, summarizer Summarizer, promptOnly boo
 	}
 }
 
-func handleGraphCommand(args []string, client GitHubClient) {
+func handleGraphCommand(args []string, client GitHubClient, gqlClient GraphQLClient) {
 	var login string
 	if len(args) < 2 {
 		// Fetch the logged-in user if no username is provided
@@ -672,8 +758,15 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		return
 	}
 
+	// Fetch all Discussions
+	discussionItems, err := fetchDiscussions(gqlClient, login, org, since)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching discussions for graph: %v\n", err)
+		return
+	}
+
 	// Check if there are any results to display
-	if len(prItems) == 0 && len(reviewItems) == 0 && len(issueItems) == 0 {
+	if len(prItems) == 0 && len(reviewItems) == 0 && len(issueItems) == 0 && len(discussionItems) == 0 {
 		fmt.Printf("No contributions found for user '%s' in the '%s' organization since %s.\n", login, org, since)
 		return
 	}
@@ -688,7 +781,7 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	daysActive := int(today.Sub(sinceDate).Hours()/24) + 1
 
 	// Combined count of all contributions
-	totalContributions := len(prItems) + len(reviewItems) + len(issueItems)
+	totalContributions := len(prItems) + len(reviewItems) + len(issueItems) + len(discussionItems)
 	averageContributions := float64(totalContributions) / float64(daysActive)
 
 	// Group contributions by week
@@ -719,6 +812,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	processItems(reviewItems, sinceDate, weekMap, weekStartDates)
 	// Process Issues
 	processItems(issueItems, sinceDate, weekMap, weekStartDates)
+	// Process Discussions
+	processItems(discussionItems, sinceDate, weekMap, weekStartDates)
 
 	// Sort the weeks chronologically
 	weeks := make([]string, 0, len(weekMap))
@@ -743,6 +838,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	countItemsByWeek(reviewItems, "review", sinceDate, weekContributionMap)
 	// Count Issues by state for each week
 	countItemsByWeek(issueItems, "issue", sinceDate, weekContributionMap)
+	// Count Discussions by state for each week
+	countItemsByWeek(discussionItems, "discussion", sinceDate, weekContributionMap)
 
 	// Track counts for summary
 	closedPRs := 0
@@ -751,6 +848,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 	openReviews := 0
 	closedIssues := 0
 	openIssues := 0
+	closedDiscussions := 0
+	openDiscussions := 0
 
 	// Print the histogram with different symbols for different contribution types
 	for _, week := range weeks {
@@ -760,6 +859,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		openReview := weekContributionMap[week][contributionType{"review", "open"}]
 		closedIssue := weekContributionMap[week][contributionType{"issue", "closed"}]
 		openIssue := weekContributionMap[week][contributionType{"issue", "open"}]
+		closedDiscussion := weekContributionMap[week][contributionType{"discussion", "closed"}]
+		openDiscussion := weekContributionMap[week][contributionType{"discussion", "open"}]
 
 		// Update summary counts
 		closedPRs += closedPR
@@ -768,6 +869,8 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		openReviews += openReview
 		closedIssues += closedIssue
 		openIssues += openIssue
+		closedDiscussions += closedDiscussion
+		openDiscussions += openDiscussion
 
 		fmt.Printf("%s: ", week)
 
@@ -799,6 +902,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		// Print open issues with □ symbol
 		for i := 0; i < openIssue; i++ {
 			fmt.Print("□")
+		}
+
+		// Print closed discussions with ▲ symbol
+		for i := 0; i < closedDiscussion; i++ {
+			fmt.Print("▲")
+		}
+
+		// Print open discussions with △ symbol
+		for i := 0; i < openDiscussion; i++ {
+			fmt.Print("△")
 		}
 
 		fmt.Print("\n")
@@ -840,6 +953,16 @@ func handleGraphCommand(args []string, client GitHubClient) {
 		}
 	}
 
+	// Only include Discussion symbols in the legend if we have Discussions
+	if len(discussionItems) > 0 {
+		if closedDiscussions > 0 {
+			legendParts = append(legendParts, "▲ = Closed Discussion")
+		}
+		if openDiscussions > 0 {
+			legendParts = append(legendParts, "△ = Open Discussion")
+		}
+	}
+
 	fmt.Println(strings.Join(legendParts, "  "))
 	fmt.Println()
 
@@ -857,6 +980,9 @@ func handleGraphCommand(args []string, client GitHubClient) {
 
 	fmt.Printf("Issues: %d total (%d closed, %d open)\n",
 		len(issueItems), closedIssues, openIssues)
+
+	fmt.Printf("Discussions: %d total (%d closed, %d open)\n",
+		len(discussionItems), closedDiscussions, openDiscussions)
 
 	// Display web URL for the GitHub search
 	webURL := buildWebURL("", login)
@@ -972,6 +1098,98 @@ func deduplicateItems(existing, candidates []GitHubItem) []GitHubItem {
 	return result
 }
 
+// DiscussionSearchResponse represents the GraphQL response for discussion search.
+type DiscussionSearchResponse struct {
+	Search struct {
+		Nodes []struct {
+			Title     string `json:"title"`
+			URL       string `json:"url"`
+			Body      string `json:"body"`
+			Number    int    `json:"number"`
+			CreatedAt string `json:"createdAt"`
+			ClosedAt  string `json:"closedAt"`
+			Closed    bool   `json:"closed"`
+		} `json:"nodes"`
+		PageInfo struct {
+			HasNextPage bool   `json:"hasNextPage"`
+			EndCursor   string `json:"endCursor"`
+		} `json:"pageInfo"`
+	} `json:"search"`
+}
+
+func fetchDiscussions(gqlClient GraphQLClient, login, org, sinceDate string) ([]GitHubItem, error) {
+	query := fmt.Sprintf("author:%s org:%s type:discussion sort:created-desc", login, org)
+	if sinceDate != "" {
+		query += fmt.Sprintf(" created:>%s", sinceDate)
+	}
+
+	const graphqlQuery = `
+query($query: String!, $first: Int!, $after: String) {
+  search(query: $query, type: DISCUSSION, first: $first, after: $after) {
+    nodes {
+      ... on Discussion {
+        title
+        url
+        body
+        number
+        createdAt
+        closedAt
+        closed
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}`
+
+	var allItems []GitHubItem
+	var cursor *string
+
+	for {
+		variables := map[string]interface{}{
+			"query": query,
+			"first": 100,
+		}
+		if cursor != nil {
+			variables["after"] = *cursor
+		}
+
+		var resp DiscussionSearchResponse
+		if err := gqlClient.Do(graphqlQuery, variables, &resp); err != nil {
+			return nil, fmt.Errorf("error querying discussions: %w", err)
+		}
+
+		for _, node := range resp.Search.Nodes {
+			state := "open"
+			if node.Closed {
+				state = "closed"
+			}
+			allItems = append(allItems, GitHubItem{
+				Number:    node.Number,
+				Title:     node.Title,
+				HTMLURL:   node.URL,
+				Body:      node.Body,
+				State:     state,
+				CreatedAt: node.CreatedAt,
+				ClosedAt:  node.ClosedAt,
+			})
+		}
+
+		if !resp.Search.PageInfo.HasNextPage {
+			break
+		}
+		cursor = &resp.Search.PageInfo.EndCursor
+	}
+
+	if debug {
+		fmt.Printf("Fetched %d discussions for %s in %s\n", len(allItems), login, org)
+	}
+
+	return allItems, nil
+}
+
 func fetchAllResults(client GitHubClient, searchURL string) ([]GitHubItem, error) {
 	var allItems []GitHubItem
 	page := 1
@@ -1032,7 +1250,8 @@ func printHelp(client GitHubClient) {
 	fmt.Println("  pulls <username>   - Get Pull Requests authored by <username> in the 'github' (or specified) org.")
 	fmt.Println("  reviews <username> - Get Pull Requests reviewed by <username> in the 'github' (or specified) org.")
 	fmt.Println("  issues <username>  - Get Issues authored by <username> in the 'github' (or specified) org.")
-	fmt.Println("  all <username>     - Get all Pull Requests, Reviews, and Issues by <username> in the 'github' (or specified) org.")
+	fmt.Println("  discussions <username> - Get Discussions authored by <username> in the 'github' (or specified) org.")
+	fmt.Println("  all <username>     - Get all Pull Requests, Reviews, Issues, and Discussions by <username> in the 'github' (or specified) org.")
 	fmt.Println("  summarize          - Summarize PR/Issue bodies from stdin or argument. Use --prompt-only to output the raw prompt.")
 	fmt.Println("  graph <username>   - Graph visualization for contributions by <username>.")
 	fmt.Println("\nFlags:")
