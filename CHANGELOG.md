@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.6.0 - 2026-02-26
+
+- Fetch PRs, reviews, issues, and discussions concurrently in `all` and `graph` commands (~4x faster)
+- Thread-safe internals for concurrent API calls
+
 ## 0.5.1 - 2026-02-26
 
 - Fix discussions query returning empty results (removed erroneous `type:discussion` from GraphQL search string)
