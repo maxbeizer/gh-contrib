@@ -430,7 +430,7 @@ func TestHandleSummarizeCommand(t *testing.T) {
 	defer func() { os.Stdin = oldStdin }() // Restore stdin
 
 	stdout, stderr := captureOutput(func() {
-		handleSummarizeCommand(testArgs, mockSummarizer)
+		handleSummarizeCommand(testArgs, mockSummarizer, false)
 	})
 
 	if stderr != "" {
@@ -680,6 +680,115 @@ func TestGetEffectiveModel(t *testing.T) {
 			t.Errorf("Expected default model '%s', got '%s'", defaultModel, model)
 		}
 	})
+}
+
+func TestBuildPrompt(t *testing.T) {
+	text := "Some contribution text"
+	result := BuildPrompt(text)
+
+	// Verify system prompt is included
+	if !strings.Contains(result, "System:") {
+		t.Error("Expected prompt to contain 'System:' prefix")
+	}
+	if !strings.Contains(result, systemPrompt) {
+		t.Error("Expected prompt to contain the system prompt")
+	}
+
+	// Verify user prompt is included with the text
+	if !strings.Contains(result, "User:") {
+		t.Error("Expected prompt to contain 'User:' prefix")
+	}
+	if !strings.Contains(result, text) {
+		t.Errorf("Expected prompt to contain the input text '%s'", text)
+	}
+}
+
+func TestHandleSummarizeCommand_PromptOnly(t *testing.T) {
+	resetFlags()
+	mockSummarizer := &MockSummarizer{
+		SummaryToReturn: "This should not appear.",
+	}
+	testArgs := []string{"summarize"} // Input will come from stdin
+
+	// Prepare stdin
+	inputBody := "Some text to summarize"
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	w.WriteString(inputBody)
+	w.Close()
+	defer func() { os.Stdin = oldStdin }() // Restore stdin
+
+	stdout, stderr := captureOutput(func() {
+		handleSummarizeCommand(testArgs, mockSummarizer, true)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	// Should contain the system prompt and user prompt
+	if !strings.Contains(stdout, "System:") {
+		t.Error("Expected stdout to contain 'System:' prefix")
+	}
+	if !strings.Contains(stdout, systemPrompt) {
+		t.Error("Expected stdout to contain the system prompt")
+	}
+	if !strings.Contains(stdout, "User:") {
+		t.Error("Expected stdout to contain 'User:' prefix")
+	}
+	if !strings.Contains(stdout, inputBody) {
+		t.Errorf("Expected stdout to contain input text '%s'", inputBody)
+	}
+
+	// Summarizer should NOT have been called
+	if len(mockSummarizer.SummarizeCalls) != 0 {
+		t.Errorf("Expected Summarize to NOT be called, but it was called %d times", len(mockSummarizer.SummarizeCalls))
+	}
+}
+
+func TestHandleSummarizeCommand_PromptOnlyMultipleEntries(t *testing.T) {
+	resetFlags()
+	mockSummarizer := &MockSummarizer{
+		SummaryToReturn: "This should not appear.",
+	}
+	testArgs := []string{"summarize"} // Input will come from stdin
+
+	// Prepare stdin with multiple entries
+	inputBody := "First entry" + entryDelimiter + "Second entry"
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	w.WriteString(inputBody)
+	w.Close()
+	defer func() { os.Stdin = oldStdin }() // Restore stdin
+
+	stdout, stderr := captureOutput(func() {
+		handleSummarizeCommand(testArgs, mockSummarizer, true)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	// Should contain both entries in the prompt output
+	if !strings.Contains(stdout, "First entry") {
+		t.Error("Expected stdout to contain 'First entry'")
+	}
+	if !strings.Contains(stdout, "Second entry") {
+		t.Error("Expected stdout to contain 'Second entry'")
+	}
+
+	// Count the number of "System:" occurrences (should be 2, one per entry)
+	systemCount := strings.Count(stdout, "System:")
+	if systemCount != 2 {
+		t.Errorf("Expected 2 'System:' occurrences, got %d", systemCount)
+	}
+
+	// Summarizer should NOT have been called
+	if len(mockSummarizer.SummarizeCalls) != 0 {
+		t.Errorf("Expected Summarize to NOT be called, but it was called %d times", len(mockSummarizer.SummarizeCalls))
+	}
 }
 
 // Add more tests for edge cases, error handling, pagination in fetchAllResults, etc.
