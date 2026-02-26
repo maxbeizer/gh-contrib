@@ -346,7 +346,7 @@ func TestHandleGraphCommand_APIError(t *testing.T) {
 		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
-	expectedError := "Error fetching pull requests for graph:"
+	expectedError := "simulated API error"
 	if !strings.Contains(stderr, expectedError) {
 		t.Errorf("Expected stderr to contain '%s', got: %s", expectedError, stderr)
 	}

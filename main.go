@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"os/user"
@@ -538,65 +539,19 @@ func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClien
 		return
 	}
 
-	org, err := orgConfigFunc()
+	org := getEffectiveOrg()
+
+	results, err := fetchAllContributions(client, gqlClient, login, org, since)
 	if err != nil {
-		org = defaultOrg
-	}
-	if orgFlag != "" {
-		org = orgFlag
-	}
-
-	prQuery := buildQuery("is:pr", login)
-	prSearchURL := fmt.Sprintf("search/issues?q=%s", prQuery)
-	if debug {
-		fmt.Printf("Calling GitHub API for PRs with URL: %s\n", prSearchURL)
-	}
-
-	prItems, err := fetchAllResults(client, prSearchURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching pull requests: %v\n", err)
-		return
-	}
-
-	reviewQuery := buildReviewQuery(login)
-	reviewSearchURL := fmt.Sprintf("search/issues?q=%s", reviewQuery)
-	if debug {
-		fmt.Printf("Calling GitHub API for reviews with URL: %s\n", reviewSearchURL)
-	}
-
-	reviewItems, err := fetchAllResults(client, reviewSearchURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching reviews: %v\n", err)
-		return
-	}
-
-	// Deduplicate: remove reviews that the user also authored (already in prItems)
-	reviewItems = deduplicateItems(prItems, reviewItems)
-
-	issueQuery := buildQuery("is:issue", login)
-	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
-	if debug {
-		fmt.Printf("Calling GitHub API for issues with URL: %s\n", issueSearchURL)
-	}
-
-	issueItems, err := fetchAllResults(client, issueSearchURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching issues: %v\n", err)
-		return
-	}
-
-	discussionItems, err := fetchDiscussions(gqlClient, login, org, since)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching discussions: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
 
 	if bodyOnly {
-
-		printBodies(prItems, startOfPR, endOfPR)
-		printBodies(reviewItems, startOfReview, endOfReview)
-		printBodies(issueItems, startOfIssue, endOfIssue)
-		printBodies(discussionItems, startOfDiscussion, endOfDiscussion)
+		printBodies(results.prItems, startOfPR, endOfPR)
+		printBodies(results.reviewItems, startOfReview, endOfReview)
+		printBodies(results.issueItems, startOfIssue, endOfIssue)
+		printBodies(results.discussionItems, startOfDiscussion, endOfDiscussion)
 		return
 	}
 
@@ -607,7 +562,7 @@ func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClien
 	writer.Write([]string{"Type", "URL", "Title", "State"})
 
 	// Write pull requests
-	for _, pr := range prItems {
+	for _, pr := range results.prItems {
 		writer.Write([]string{
 			"Pull Request",
 			pr.HTMLURL + " ",
@@ -617,7 +572,7 @@ func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClien
 	}
 
 	// Write reviews
-	for _, review := range reviewItems {
+	for _, review := range results.reviewItems {
 		writer.Write([]string{
 			"Review",
 			review.HTMLURL + " ",
@@ -627,7 +582,7 @@ func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClien
 	}
 
 	// Write issues
-	for _, issue := range issueItems {
+	for _, issue := range results.issueItems {
 		writer.Write([]string{
 			"Issue",
 			issue.HTMLURL + " ",
@@ -637,7 +592,7 @@ func handleAllCommand(args []string, client GitHubClient, gqlClient GraphQLClien
 	}
 
 	// Write discussions
-	for _, disc := range discussionItems {
+	for _, disc := range results.discussionItems {
 		writer.Write([]string{
 			"Discussion",
 			disc.HTMLURL + " ",
@@ -697,60 +652,16 @@ func handleGraphCommand(args []string, client GitHubClient, gqlClient GraphQLCli
 		fmt.Printf("Debug: Creating graph for login '%s' in org '%s' since '%s'\n", login, org, since)
 	}
 
-	// Build the query for PRs within the time range
-	prQuery := buildQuery("is:pr", login)
-	prSearchURL := fmt.Sprintf("search/issues?q=%s", prQuery)
-
-	if debug {
-		fmt.Printf("Calling GitHub API for PRs with URL: %s\n", prSearchURL)
-	}
-
-	// Fetch all PRs
-	prItems, err := fetchAllResults(client, prSearchURL)
+	results, err := fetchAllContributions(client, gqlClient, login, org, since)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching pull requests for graph: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
 
-	// Build the query for Reviews within the time range
-	reviewQuery := buildReviewQuery(login)
-	reviewSearchURL := fmt.Sprintf("search/issues?q=%s", reviewQuery)
-
-	if debug {
-		fmt.Printf("Calling GitHub API for Reviews with URL: %s\n", reviewSearchURL)
-	}
-
-	// Fetch all Reviews
-	reviewItems, err := fetchAllResults(client, reviewSearchURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching reviews for graph: %v\n", err)
-		return
-	}
-
-	// Deduplicate: remove reviews that the user also authored
-	reviewItems = deduplicateItems(prItems, reviewItems)
-
-	// Build the query for Issues within the time range
-	issueQuery := buildQuery("is:issue", login)
-	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
-
-	if debug {
-		fmt.Printf("Calling GitHub API for Issues with URL: %s\n", issueSearchURL)
-	}
-
-	// Fetch all Issues
-	issueItems, err := fetchAllResults(client, issueSearchURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching issues for graph: %v\n", err)
-		return
-	}
-
-	// Fetch all Discussions
-	discussionItems, err := fetchDiscussions(gqlClient, login, org, since)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching discussions for graph: %v\n", err)
-		return
-	}
+	prItems := results.prItems
+	reviewItems := results.reviewItems
+	issueItems := results.issueItems
+	discussionItems := results.discussionItems
 
 	// Check if there are any results to display
 	if len(prItems) == 0 && len(reviewItems) == 0 && len(issueItems) == 0 && len(discussionItems) == 0 {
@@ -1187,6 +1098,98 @@ query($query: String!, $first: Int!, $after: String) {
 	}
 
 	return allItems, nil
+}
+
+// contributionResults holds the results of fetching all contribution types concurrently.
+type contributionResults struct {
+	prItems         []GitHubItem
+	reviewItems     []GitHubItem
+	issueItems      []GitHubItem
+	discussionItems []GitHubItem
+}
+
+// fetchAllContributions fetches PRs, reviews, issues, and discussions concurrently.
+func fetchAllContributions(client GitHubClient, gqlClient GraphQLClient, login, org, sinceDate string) (*contributionResults, error) {
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		results contributionResults
+		errs    []error
+	)
+
+	prQuery := buildQuery("is:pr", login)
+	prSearchURL := fmt.Sprintf("search/issues?q=%s", prQuery)
+
+	reviewQuery := buildReviewQuery(login)
+	reviewSearchURL := fmt.Sprintf("search/issues?q=%s", reviewQuery)
+
+	issueQuery := buildQuery("is:issue", login)
+	issueSearchURL := fmt.Sprintf("search/issues?q=%s", issueQuery)
+
+	if debug {
+		fmt.Printf("Fetching PRs, reviews, issues, and discussions concurrently for %s\n", login)
+	}
+
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		items, err := fetchAllResults(client, prSearchURL)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error fetching pull requests: %w", err))
+			return
+		}
+		results.prItems = items
+	}()
+
+	go func() {
+		defer wg.Done()
+		items, err := fetchAllResults(client, reviewSearchURL)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error fetching reviews: %w", err))
+			return
+		}
+		results.reviewItems = items
+	}()
+
+	go func() {
+		defer wg.Done()
+		items, err := fetchAllResults(client, issueSearchURL)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error fetching issues: %w", err))
+			return
+		}
+		results.issueItems = items
+	}()
+
+	go func() {
+		defer wg.Done()
+		items, err := fetchDiscussions(gqlClient, login, org, sinceDate)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error fetching discussions: %w", err))
+			return
+		}
+		results.discussionItems = items
+	}()
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+
+	// Deduplicate: remove reviews that the user also authored
+	results.reviewItems = deduplicateItems(results.prItems, results.reviewItems)
+
+	return &results, nil
 }
 
 func fetchAllResults(client GitHubClient, searchURL string) ([]GitHubItem, error) {
