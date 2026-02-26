@@ -11,6 +11,7 @@ import (
 func TestHandleGraphCommand_Basic(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -102,7 +103,7 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -123,6 +124,7 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 		"Total Contributions: 6",
 		"PRs: 3 total (2 closed, 1 open)",
 		"Issues: 3 total (2 closed, 1 open)",
+		"Discussions: 0 total (0 closed, 0 open)",
 	}
 
 	for _, expected := range expectedOutputs {
@@ -140,6 +142,7 @@ func TestHandleGraphCommand_Basic(t *testing.T) {
 func TestHandleGraphCommand_NoPRs(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -182,7 +185,7 @@ func TestHandleGraphCommand_NoPRs(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -219,6 +222,7 @@ func TestHandleGraphCommand_NoPRs(t *testing.T) {
 func TestHandleGraphCommand_NoIssues(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -260,7 +264,7 @@ func TestHandleGraphCommand_NoIssues(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -297,6 +301,7 @@ func TestHandleGraphCommand_NoIssues(t *testing.T) {
 func TestHandleGraphCommand_NoResults(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -312,7 +317,7 @@ func TestHandleGraphCommand_NoResults(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -328,6 +333,7 @@ func TestHandleGraphCommand_NoResults(t *testing.T) {
 func TestHandleGraphCommand_APIError(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -337,7 +343,7 @@ func TestHandleGraphCommand_APIError(t *testing.T) {
 	}
 
 	_, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	expectedError := "Error fetching pull requests for graph:"
@@ -349,6 +355,7 @@ func TestHandleGraphCommand_APIError(t *testing.T) {
 func TestHandleGraphCommand_DateHandling(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -415,7 +422,7 @@ func TestHandleGraphCommand_DateHandling(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -440,6 +447,7 @@ func TestHandleGraphCommand_DateHandling(t *testing.T) {
 func TestHandleGraphCommand_WebURL(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"graph", testLogin}
 
@@ -491,7 +499,7 @@ func TestHandleGraphCommand_WebURL(t *testing.T) {
 	}
 
 	stdout, stderr := captureOutput(func() {
-		handleGraphCommand(testArgs, mockClient)
+		handleGraphCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {

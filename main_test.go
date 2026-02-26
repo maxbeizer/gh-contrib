@@ -31,6 +31,20 @@ func (m *MockGitHubClient) Get(path string, response interface{}) error {
 	return nil
 }
 
+// MockGraphQLClient simulates the GitHub GraphQL API client.
+type MockGraphQLClient struct {
+	DoFunc func(query string, variables map[string]interface{}, response interface{}) error
+	DoCalls []string
+}
+
+func (m *MockGraphQLClient) Do(query string, variables map[string]interface{}, response interface{}) error {
+	m.DoCalls = append(m.DoCalls, query)
+	if m.DoFunc != nil {
+		return m.DoFunc(query, variables, response)
+	}
+	return nil
+}
+
 // MockTokenFetcher simulates fetching an auth token.
 type MockTokenFetcher struct {
 	TokenToReturn string
@@ -230,6 +244,7 @@ func TestHandleIssuesCommand_CSV(t *testing.T) {
 func TestHandleAllCommand_CSV(t *testing.T) {
 	resetFlags()
 	mockClient := &MockGitHubClient{}
+	mockGQLClient := &MockGraphQLClient{}
 	testLogin := "testuser"
 	testArgs := []string{"all", testLogin}
 
@@ -263,8 +278,26 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 		return json.Unmarshal(data, response)
 	}
 
+	// Mock GraphQL client returns one discussion
+	mockGQLClient.DoFunc = func(query string, variables map[string]interface{}, response interface{}) error {
+		resp := response.(*DiscussionSearchResponse)
+		resp.Search.Nodes = []struct {
+			Title     string `json:"title"`
+			URL       string `json:"url"`
+			Body      string `json:"body"`
+			Number    int    `json:"number"`
+			CreatedAt string `json:"createdAt"`
+			ClosedAt  string `json:"closedAt"`
+			Closed    bool   `json:"closed"`
+		}{
+			{Title: "Test Discussion", URL: "http://example.com/discussion/1", Number: 1, Closed: false, CreatedAt: "2025-01-20T00:00:00Z"},
+		}
+		resp.Search.PageInfo.HasNextPage = false
+		return nil
+	}
+
 	stdout, stderr := captureOutput(func() {
-		handleAllCommand(testArgs, mockClient)
+		handleAllCommand(testArgs, mockClient, mockGQLClient)
 	})
 
 	if stderr != "" {
@@ -275,6 +308,7 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 	expectedPRRow := "Pull Request,http://example.com/pr/123 ,Test PR,open"
 	expectedReviewRow := "Review,http://example.com/pr/789 ,Reviewed PR,closed"
 	expectedIssueRow := "Issue,http://example.com/issue/456 ,Test Issue,closed"
+	expectedDiscussionRow := "Discussion,http://example.com/discussion/1 ,Test Discussion,open"
 
 	if !strings.Contains(stdout, expectedHeader) {
 		t.Errorf("Expected stdout to contain header '%s', got: %s", expectedHeader, stdout)
@@ -287,6 +321,9 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 	}
 	if !strings.Contains(stdout, expectedIssueRow) {
 		t.Errorf("Expected stdout to contain Issue row '%s', got: %s", expectedIssueRow, stdout)
+	}
+	if !strings.Contains(stdout, expectedDiscussionRow) {
+		t.Errorf("Expected stdout to contain Discussion row '%s', got: %s", expectedDiscussionRow, stdout)
 	}
 	if len(mockClient.GetCalls) != 3 { // One for PRs, one for Reviews, one for Issues
 		t.Errorf("Expected 3 API calls, got %d", len(mockClient.GetCalls))
@@ -788,6 +825,132 @@ func TestHandleSummarizeCommand_PromptOnlyMultipleEntries(t *testing.T) {
 	// Summarizer should NOT have been called
 	if len(mockSummarizer.SummarizeCalls) != 0 {
 		t.Errorf("Expected Summarize to NOT be called, but it was called %d times", len(mockSummarizer.SummarizeCalls))
+	}
+}
+
+func TestHandleDiscussionsCommand_CSV(t *testing.T) {
+	resetFlags()
+	mockGQLClient := &MockGraphQLClient{}
+	testLogin := "testuser"
+	testArgs := []string{"discussions", testLogin}
+
+	mockGQLClient.DoFunc = func(query string, variables map[string]interface{}, response interface{}) error {
+		resp := response.(*DiscussionSearchResponse)
+		resp.Search.Nodes = []struct {
+			Title     string `json:"title"`
+			URL       string `json:"url"`
+			Body      string `json:"body"`
+			Number    int    `json:"number"`
+			CreatedAt string `json:"createdAt"`
+			ClosedAt  string `json:"closedAt"`
+			Closed    bool   `json:"closed"`
+		}{
+			{Title: "Test Discussion", URL: "http://example.com/discussion/1", Number: 1, Closed: false, CreatedAt: "2025-01-20T00:00:00Z"},
+		}
+		resp.Search.PageInfo.HasNextPage = false
+		return nil
+	}
+
+	stdout, stderr := captureOutput(func() {
+		handleDiscussionsCommand(testArgs, mockGQLClient)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	expectedHeader := "URL,Title,State"
+	expectedRow := "http://example.com/discussion/1 ,Test Discussion,open"
+
+	if !strings.Contains(stdout, expectedHeader) {
+		t.Errorf("Expected stdout to contain header '%s', got: %s", expectedHeader, stdout)
+	}
+	if !strings.Contains(stdout, expectedRow) {
+		t.Errorf("Expected stdout to contain row '%s', got: %s", expectedRow, stdout)
+	}
+	if len(mockGQLClient.DoCalls) != 1 {
+		t.Errorf("Expected 1 GraphQL call, got %d", len(mockGQLClient.DoCalls))
+	}
+}
+
+func TestHandleDiscussionsCommand_BodyOnly(t *testing.T) {
+	resetFlags()
+	bodyOnly = true
+	mockGQLClient := &MockGraphQLClient{}
+	testLogin := "testuser"
+	testArgs := []string{"discussions", testLogin}
+
+	mockGQLClient.DoFunc = func(query string, variables map[string]interface{}, response interface{}) error {
+		resp := response.(*DiscussionSearchResponse)
+		resp.Search.Nodes = []struct {
+			Title     string `json:"title"`
+			URL       string `json:"url"`
+			Body      string `json:"body"`
+			Number    int    `json:"number"`
+			CreatedAt string `json:"createdAt"`
+			ClosedAt  string `json:"closedAt"`
+			Closed    bool   `json:"closed"`
+		}{
+			{Title: "Test Discussion", URL: "http://example.com/discussion/1", Body: "Discussion body.", Number: 1, Closed: false, CreatedAt: "2025-01-20T00:00:00Z"},
+		}
+		resp.Search.PageInfo.HasNextPage = false
+		return nil
+	}
+
+	stdout, stderr := captureOutput(func() {
+		handleDiscussionsCommand(testArgs, mockGQLClient)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	expectedOutput := fmt.Sprintf("%s\n%s #%d\n%s\n%s\n%s\n", startOfDiscussion, "Test Discussion", 1, "Discussion body.", endOfDiscussion, entryDelimiter)
+
+	if stdout != expectedOutput {
+		t.Errorf("Expected stdout to be:\n%s\nGot:\n%s", expectedOutput, stdout)
+	}
+}
+
+func TestFetchDiscussions(t *testing.T) {
+	resetFlags()
+	mockGQLClient := &MockGraphQLClient{}
+
+	mockGQLClient.DoFunc = func(query string, variables map[string]interface{}, response interface{}) error {
+		resp := response.(*DiscussionSearchResponse)
+		resp.Search.Nodes = []struct {
+			Title     string `json:"title"`
+			URL       string `json:"url"`
+			Body      string `json:"body"`
+			Number    int    `json:"number"`
+			CreatedAt string `json:"createdAt"`
+			ClosedAt  string `json:"closedAt"`
+			Closed    bool   `json:"closed"`
+		}{
+			{Title: "Open Discussion", URL: "http://example.com/d/1", Number: 1, Closed: false, CreatedAt: "2025-01-20T00:00:00Z"},
+			{Title: "Closed Discussion", URL: "http://example.com/d/2", Number: 2, Closed: true, CreatedAt: "2025-01-15T00:00:00Z", ClosedAt: "2025-01-18T00:00:00Z"},
+		}
+		resp.Search.PageInfo.HasNextPage = false
+		return nil
+	}
+
+	items, err := fetchDiscussions(mockGQLClient, "testuser", "github", "2025-01-01")
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("Expected 2 items, got %d", len(items))
+	}
+
+	if items[0].State != "open" {
+		t.Errorf("Expected first item state 'open', got '%s'", items[0].State)
+	}
+	if items[1].State != "closed" {
+		t.Errorf("Expected second item state 'closed', got '%s'", items[1].State)
+	}
+	if items[0].Title != "Open Discussion" {
+		t.Errorf("Expected first item title 'Open Discussion', got '%s'", items[0].Title)
 	}
 }
 
