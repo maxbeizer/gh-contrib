@@ -242,6 +242,12 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 					Name string `json:"name"`
 				}{"test-repo"}},
 			}
+		} else if strings.Contains(path, "search/issues?q=") && strings.Contains(path, "is%3Apr") && strings.Contains(path, "reviewed-by%3Atestuser") && strings.Contains(path, "page=1") {
+			items = []GitHubItem{
+				{Number: 789, Title: "Reviewed PR", HTMLURL: "http://example.com/pr/789", State: "closed", Repository: struct {
+					Name string `json:"name"`
+				}{"review-repo"}},
+			}
 		} else if strings.Contains(path, "search/issues?q=") && strings.Contains(path, "is%3Aissue") && strings.Contains(path, "author%3Atestuser") && strings.Contains(path, "page=1") {
 			items = []GitHubItem{
 				{Number: 456, Title: "Test Issue", HTMLURL: "http://example.com/issue/456", State: "closed", Repository: struct {
@@ -267,6 +273,7 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 
 	expectedHeader := "Type,URL,Title,State"
 	expectedPRRow := "Pull Request,http://example.com/pr/123 ,Test PR,open"
+	expectedReviewRow := "Review,http://example.com/pr/789 ,Reviewed PR,closed"
 	expectedIssueRow := "Issue,http://example.com/issue/456 ,Test Issue,closed"
 
 	if !strings.Contains(stdout, expectedHeader) {
@@ -275,11 +282,134 @@ func TestHandleAllCommand_CSV(t *testing.T) {
 	if !strings.Contains(stdout, expectedPRRow) {
 		t.Errorf("Expected stdout to contain PR row '%s', got: %s", expectedPRRow, stdout)
 	}
+	if !strings.Contains(stdout, expectedReviewRow) {
+		t.Errorf("Expected stdout to contain Review row '%s', got: %s", expectedReviewRow, stdout)
+	}
 	if !strings.Contains(stdout, expectedIssueRow) {
 		t.Errorf("Expected stdout to contain Issue row '%s', got: %s", expectedIssueRow, stdout)
 	}
-	if len(mockClient.GetCalls) != 2 { // One for PRs, one for Issues
-		t.Errorf("Expected 2 API calls, got %d", len(mockClient.GetCalls))
+	if len(mockClient.GetCalls) != 3 { // One for PRs, one for Reviews, one for Issues
+		t.Errorf("Expected 3 API calls, got %d", len(mockClient.GetCalls))
+	}
+}
+
+func TestHandleReviewsCommand_CSV(t *testing.T) {
+	resetFlags()
+	mockClient := &MockGitHubClient{}
+	testLogin := "testuser"
+	testArgs := []string{"reviews", testLogin}
+
+	mockClient.GetFunc = func(path string, response interface{}) error {
+		if strings.Contains(path, "search/issues?q=") && strings.Contains(path, "is%3Apr") && strings.Contains(path, "reviewed-by%3Atestuser") && strings.Contains(path, "page=1") {
+			resp := GitHubResponse{
+				TotalCount: 1,
+				Items: []GitHubItem{
+					{Number: 789, Title: "Reviewed PR", HTMLURL: "http://example.com/pr/789", State: "closed", Repository: struct {
+						Name string `json:"name"`
+					}{"review-repo"}},
+				},
+			}
+			data, _ := json.Marshal(resp)
+			return json.Unmarshal(data, response)
+		}
+		return fmt.Errorf("unexpected API call: %s", path)
+	}
+
+	stdout, stderr := captureOutput(func() {
+		handleReviewsCommand(testArgs, mockClient)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	expectedHeader := "URL,Title,State"
+	expectedRow := "http://example.com/pr/789 ,Reviewed PR,closed"
+
+	if !strings.Contains(stdout, expectedHeader) {
+		t.Errorf("Expected stdout to contain header '%s', got: %s", expectedHeader, stdout)
+	}
+	if !strings.Contains(stdout, expectedRow) {
+		t.Errorf("Expected stdout to contain row '%s', got: %s", expectedRow, stdout)
+	}
+	if len(mockClient.GetCalls) != 1 {
+		t.Errorf("Expected 1 API call, got %d", len(mockClient.GetCalls))
+	}
+}
+
+func TestHandleReviewsCommand_BodyOnly(t *testing.T) {
+	resetFlags()
+	bodyOnly = true
+	mockClient := &MockGitHubClient{}
+	testLogin := "testuser"
+	testArgs := []string{"reviews", testLogin}
+
+	mockClient.GetFunc = func(path string, response interface{}) error {
+		if strings.Contains(path, "search/issues?q=") && strings.Contains(path, "is%3Apr") && strings.Contains(path, "reviewed-by%3Atestuser") && strings.Contains(path, "page=1") {
+			resp := GitHubResponse{
+				TotalCount: 1,
+				Items: []GitHubItem{
+					{Number: 789, Title: "Reviewed PR", Body: "Review body.", HTMLURL: "http://example.com/pr/789", State: "closed", Repository: struct {
+						Name string `json:"name"`
+					}{"review-repo"}},
+				},
+			}
+			data, _ := json.Marshal(resp)
+			return json.Unmarshal(data, response)
+		}
+		return fmt.Errorf("unexpected API call: %s", path)
+	}
+
+	stdout, stderr := captureOutput(func() {
+		handleReviewsCommand(testArgs, mockClient)
+	})
+
+	if stderr != "" {
+		t.Errorf("Expected no stderr, got: %s", stderr)
+	}
+
+	expectedOutput := fmt.Sprintf("%s\n%s #%d\n%s\n%s\n%s\n", startOfReview, "Reviewed PR", 789, "Review body.", endOfReview, entryDelimiter)
+
+	if stdout != expectedOutput {
+		t.Errorf("Expected stdout to be:\n%s\nGot:\n%s", expectedOutput, stdout)
+	}
+}
+
+func TestBuildReviewQuery(t *testing.T) {
+	resetFlags()
+	testLogin := "testuser"
+
+	originalOrgConfigFunc := orgConfigFunc
+	orgConfigFunc = func() (string, error) {
+		return "github", nil
+	}
+	defer func() { orgConfigFunc = originalOrgConfigFunc }()
+
+	since = "2025-01-15"
+	expected := "is%3Apr+org%3Agithub+reviewed-by%3Atestuser+sort%3Acreated-desc+created%3A%3E2025-01-15"
+	actual := buildReviewQuery(testLogin)
+	if actual != expected {
+		t.Errorf("Expected query '%s', got '%s'", expected, actual)
+	}
+}
+
+func TestDeduplicateItems(t *testing.T) {
+	existing := []GitHubItem{
+		{HTMLURL: "http://example.com/pr/1"},
+		{HTMLURL: "http://example.com/pr/2"},
+	}
+	candidates := []GitHubItem{
+		{HTMLURL: "http://example.com/pr/2", Title: "Duplicate"},
+		{HTMLURL: "http://example.com/pr/3", Title: "Unique"},
+	}
+
+	result := deduplicateItems(existing, candidates)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 item after dedup, got %d", len(result))
+	}
+	if result[0].HTMLURL != "http://example.com/pr/3" {
+		t.Errorf("Expected unique item, got %s", result[0].HTMLURL)
 	}
 }
 
