@@ -108,6 +108,7 @@ func resetFlags() {
 	debug = false
 	since = time.Now().AddDate(0, 0, -30).Format(dateFormat) // Reset to default
 	bodyOnly = false
+	visibilityFlag = ""
 }
 
 // --- Test Functions ---
@@ -581,6 +582,74 @@ func TestBuildWebURL(t *testing.T) {
 	actualPRWithRange := buildWebURL("is:pr", testLogin)
 	if actualPRWithRange != expectedPRWithRange {
 		t.Errorf("Expected URL '%s', got '%s'", expectedPRWithRange, actualPRWithRange)
+	}
+}
+
+func TestVisibilityFilter(t *testing.T) {
+	resetFlags()
+
+	// No visibility flag set
+	if got := visibilityFilter(); got != "" {
+		t.Errorf("Expected empty string when no visibility flag, got '%s'", got)
+	}
+
+	// Public visibility
+	visibilityFlag = "public"
+	if got := visibilityFilter(); got != " is:public" {
+		t.Errorf("Expected ' is:public', got '%s'", got)
+	}
+
+	// Private visibility
+	visibilityFlag = "private"
+	if got := visibilityFilter(); got != " is:private" {
+		t.Errorf("Expected ' is:private', got '%s'", got)
+	}
+}
+
+func TestBuildQueryWithVisibility(t *testing.T) {
+	resetFlags()
+	testLogin := "testuser"
+
+	originalOrgConfigFunc := orgConfigFunc
+	orgConfigFunc = func() (string, error) {
+		return "github", nil
+	}
+	defer func() { orgConfigFunc = originalOrgConfigFunc }()
+
+	// With public visibility
+	visibilityFlag = "public"
+	since = "2025-01-15"
+	expected := "is%3Apr+org%3Agithub+author%3Atestuser+sort%3Acreated-desc+is%3Apublic+created%3A%3E2025-01-15"
+	actual := buildQuery("is:pr", testLogin)
+	if actual != expected {
+		t.Errorf("Expected query '%s', got '%s'", expected, actual)
+	}
+
+	// With private visibility
+	visibilityFlag = "private"
+	expected = "is%3Apr+org%3Agithub+author%3Atestuser+sort%3Acreated-desc+is%3Aprivate+created%3A%3E2025-01-15"
+	actual = buildQuery("is:pr", testLogin)
+	if actual != expected {
+		t.Errorf("Expected query '%s', got '%s'", expected, actual)
+	}
+}
+
+func TestBuildReviewQueryWithVisibility(t *testing.T) {
+	resetFlags()
+	testLogin := "testuser"
+
+	originalOrgConfigFunc := orgConfigFunc
+	orgConfigFunc = func() (string, error) {
+		return "github", nil
+	}
+	defer func() { orgConfigFunc = originalOrgConfigFunc }()
+
+	visibilityFlag = "public"
+	since = "2025-01-15"
+	expected := "is%3Apr+org%3Agithub+reviewed-by%3Atestuser+sort%3Acreated-desc+is%3Apublic+created%3A%3E2025-01-15"
+	actual := buildReviewQuery(testLogin)
+	if actual != expected {
+		t.Errorf("Expected query '%s', got '%s'", expected, actual)
 	}
 }
 

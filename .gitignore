@@ -1,2 +1,16 @@
 /gh-contrib
 /gh-contrib.exe
+
+# Build artifacts
+bin/
+dist/
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store

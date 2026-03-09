@@ -1,6 +1,6 @@
 # Makefile for gh-contrib
 
-.PHONY: build test help
+.PHONY: build test ci help
 .DEFAULT_GOAL := help
 
 # Build the Go binary and reinstall the gh extension
@@ -19,6 +19,12 @@ build:
 test:
 	@echo "Running tests..."
 	./script/test
+
+# CI: build and test (used by GitHub Actions)
+## ci: Build and run the full test suite
+ci:
+	go build ./...
+	go test -v -race -timeout 30s ./...
 
 # Show help for available make commands
 ## help: Show this help message

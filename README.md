@@ -134,6 +134,21 @@ gh contrib --org primer pulls octocat
 
 > ⚠️ **Note:** GitHub's search API doesn't support OR queries, so you can only query one organization at a time.
 
+### 🔓 Visibility Filter
+
+Filter contributions by repository visibility:
+
+```bash
+# Show only open source (public repo) contributions
+gh contrib --visibility public pulls octocat
+
+# Show only private repo contributions
+gh contrib --visibility private pulls octocat
+
+# Works with all commands
+gh contrib --visibility public graph octocat
+```
+
 ### 🤖 AI Model Selection
 
 Choose your preferred AI model for summaries:

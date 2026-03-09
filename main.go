@@ -261,12 +261,13 @@ type GitHubResponse struct {
 
 // Global variables
 var (
-	debug      bool
-	since      string
-	bodyOnly   bool
-	orgFlag    string
-	modelFlag  string // Global variable to store the value of the --model flag
-	promptOnly bool   // Global variable to store the value of the --prompt-only flag
+	debug          bool
+	since          string
+	bodyOnly       bool
+	orgFlag        string
+	modelFlag      string // Global variable to store the value of the --model flag
+	promptOnly     bool   // Global variable to store the value of the --prompt-only flag
+	visibilityFlag string // Filter by repository visibility: "public" or "private"
 )
 
 func init() {
@@ -277,6 +278,7 @@ func init() {
 	flag.StringVar(&orgFlag, "org", "", "Override the configured organization")
 	flag.StringVar(&modelFlag, "model", "", "Override the configured or default model")
 	flag.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
+	flag.StringVar(&visibilityFlag, "visibility", "", "Filter by repository visibility: public or private")
 }
 
 func main() {
@@ -289,6 +291,7 @@ func main() {
 	cmdFlags.StringVar(&orgFlag, "org", "", "Override the configured organization")
 	cmdFlags.StringVar(&modelFlag, "model", "", "Override the configured or default model")
 	cmdFlags.BoolVar(&promptOnly, "prompt-only", false, "Output the raw prompt without sending to the AI endpoint")
+	cmdFlags.StringVar(&visibilityFlag, "visibility", "", "Filter by repository visibility: public or private")
 
 	// Process all the arguments to find and extract flags anywhere in the command
 	args := os.Args[1:] // Skip the program name
@@ -341,10 +344,19 @@ func main() {
 		subcommandArgs = append([]string{subcommand}, nonFlagArgs[1:]...)
 	}
 
+	// Validate --visibility flag
+	if visibilityFlag != "" && visibilityFlag != "public" && visibilityFlag != "private" {
+		fmt.Fprintf(os.Stderr, "Error: --visibility must be 'public' or 'private', got '%s'\n", visibilityFlag)
+		os.Exit(1)
+	}
+
 	if debug {
 		fmt.Println("Debug mode enabled")
 		fmt.Printf("Arguments: %v\n", subcommandArgs)
 		fmt.Printf("Using AI model: %s\n", getEffectiveModel())
+		if visibilityFlag != "" {
+			fmt.Printf("Filtering by visibility: %s\n", visibilityFlag)
+		}
 	}
 
 	ghClient, err := NewDefaultGitHubClient()
@@ -954,9 +966,18 @@ func getEffectiveModel() string {
 	return modelConfigFunc() // Use the configured or default model
 }
 
+// visibilityFilter returns the search qualifier for the current visibility flag.
+func visibilityFilter() string {
+	if visibilityFlag != "" {
+		return fmt.Sprintf(" is:%s", visibilityFlag)
+	}
+	return ""
+}
+
 func buildQuery(itemType, login string) string {
 	org := getEffectiveOrg() // Use the effective organization
 	query := fmt.Sprintf("%s org:%s author:%s sort:created-desc", itemType, org, login)
+	query += visibilityFilter()
 	if since != "" {
 		query += fmt.Sprintf(" created:>%s", since)
 		query = url.QueryEscape(query)
@@ -967,6 +988,7 @@ func buildQuery(itemType, login string) string {
 func buildReviewQuery(login string) string {
 	org := getEffectiveOrg()
 	query := fmt.Sprintf("is:pr org:%s reviewed-by:%s sort:created-desc", org, login)
+	query += visibilityFilter()
 	if since != "" {
 		query += fmt.Sprintf(" created:>%s", since)
 		query = url.QueryEscape(query)
@@ -983,6 +1005,7 @@ func buildWebURL(itemType, login string) string {
 	} else {
 		query = fmt.Sprintf("org:%s author:%s sort:updated-desc", org, login)
 	}
+	query += visibilityFilter()
 	if since != "" {
 		// Use date range format: created:start..end where end is today
 		today := timeNowFunc().Format(dateFormat)
@@ -1029,6 +1052,7 @@ type DiscussionSearchResponse struct {
 
 func fetchDiscussions(gqlClient GraphQLClient, login, org, sinceDate string) ([]GitHubItem, error) {
 	query := fmt.Sprintf("author:%s org:%s sort:created-desc", login, org)
+	query += visibilityFilter()
 	if sinceDate != "" {
 		query += fmt.Sprintf(" created:>%s", sinceDate)
 	}

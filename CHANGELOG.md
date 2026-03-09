@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.7.0 - 2026-03-09
+
+- Add `--visibility` flag to filter contributions by repository visibility (`public` or `private`)
+- Add CI workflow for running tests on push and PR
+- Add `CODE_OF_CONDUCT.md`
+- Add `ci` Makefile target
+- Expand `.gitignore` with IDE and build artifact patterns
+
 ## 0.6.0 - 2026-02-26
 
 - Fetch PRs, reviews, issues, and discussions concurrently in `all` and `graph` commands (~4x faster)

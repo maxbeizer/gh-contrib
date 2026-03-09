@@ -25,6 +25,7 @@ The project currently consists of a single main file:
 - **Flags:**
   - `--since YYYY-MM-DD`: Filters results created after the specified date.
   - `--body-only`: Outputs only the bodies of the fetched items, formatted with start/end markers, instead of CSV. Useful for piping to the `summarize` command.
+  - `--visibility public|private`: Filters contributions by repository visibility.
   - `--debug`: Enables verbose logging.
 - **Authentication:**
   - GitHub API: Relies on the user being authenticated via the `gh` CLI, as `go-gh` uses this context.
