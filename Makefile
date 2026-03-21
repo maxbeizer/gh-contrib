@@ -7,7 +7,7 @@ EXTENSION_NAME ?= contrib
 BINARY ?= bin/gh-$(EXTENSION_NAME)
 GO ?= go
 GO_MIN_MAJOR ?= 1
-GO_MIN_MINOR ?= 21
+GO_MIN_MINOR ?= 24
 GO_MIN_PATCH ?= 0
 
 check-go-version:
