@@ -1,0 +1,23 @@
+project_name: gh-extension-template
+
+builds:
+  - binary: gh-extension-template
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - format: binary
+    name_template: "{{ .ProjectName }}_{{ .Os }}-{{ .Arch }}"
+
+release:
+  prerelease: auto
+
+changelog:
+  sort: asc
