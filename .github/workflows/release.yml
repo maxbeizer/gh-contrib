@@ -1,24 +1,26 @@
-name: release
+name: Release
+
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
+
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libc6-dev gcc-multilib
-      - uses: cli/gh-extension-precompile@v2
         with:
-          generate_attestations: true
-          go_version_file: go.mod
-          build_script_override: "script/build.sh"
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
